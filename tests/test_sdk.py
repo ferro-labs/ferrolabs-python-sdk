@@ -15,7 +15,7 @@ from pytest_httpx import HTTPXMock
 from ferrolabsai import AsyncFerroClient, FerroClient
 from ferrolabsai.exceptions import FerroAuthError, FerroNotFoundError, FerroRateLimitError
 
-BASE_URL = "https://api.ferrolabs.ai"
+BASE_URL = "http://localhost:8080"
 API_KEY = "sk-ferro-testkey123"
 
 

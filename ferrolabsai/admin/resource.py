@@ -30,8 +30,8 @@ Write (admin scope only):
     POST   /admin/config/rollback/{version}
 
 These endpoints are available on any self-hosted Ferro Labs AI Gateway
-instance (and on FerroCloud). All requests require an API key with admin
-scope (or read-only scope for read endpoints), passed via the standard
+instance. All requests require an API key with admin scope (or read-only
+scope for read endpoints), passed via the standard
 ``Authorization: Bearer ...`` header set on ``FerroClient``.
 """
 

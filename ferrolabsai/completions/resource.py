@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Iterator, overload
-
-from typing_extensions import Literal
+from collections.abc import Iterator
+from typing import Any, Literal, overload
 
 from ..types import ChatCompletion, ChatCompletionChunk
 

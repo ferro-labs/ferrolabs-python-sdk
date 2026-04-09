@@ -1,12 +1,13 @@
 """
 FerroClient — drop-in replacement for the OpenAI Python client.
-Points at any Ferro Labs AI Gateway instance (self-hosted or FerroCloud).
+Points at any self-hosted Ferro Labs AI Gateway instance.
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any, Iterator, Literal, cast, overload
+from collections.abc import Iterator
+from typing import Any, Literal, cast, overload
 
 import httpx
 
@@ -17,7 +18,7 @@ from .exceptions import FerroAuthError, FerroConnectionError
 from .images.resource import Images
 from .models.resource import Models
 
-DEFAULT_BASE_URL = "https://api.ferrolabs.ai"
+DEFAULT_BASE_URL = "http://localhost:8080"
 DEFAULT_TIMEOUT = 120.0
 DEFAULT_MAX_RETRIES = 2
 

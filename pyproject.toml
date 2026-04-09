@@ -8,9 +8,9 @@ version = "0.1.0"
 description = "Official Python SDK for Ferro Labs AI Gateway — route LLM requests across 29 providers with a single OpenAI-compatible API"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 authors = [
-    { name = "Ferro Labs", email = "sdk@ferrolabs.ai" },
+    { name = "Ferro Labs", email = "hello@ferrolabs.ai" },
 ]
 keywords = [
     "llm", "ai", "gateway", "openai", "anthropic", "llm-router",
@@ -22,7 +22,6 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -32,7 +31,6 @@ classifiers = [
 ]
 dependencies = [
     "httpx>=0.24.0",
-    "typing-extensions>=4.0.0",
 ]
 
 [project.optional-dependencies]
@@ -56,7 +54,7 @@ packages = ["ferrolabsai"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py38"
+target-version = "py39"
 select = ["E", "F", "I", "UP"]
 
 [tool.mypy]

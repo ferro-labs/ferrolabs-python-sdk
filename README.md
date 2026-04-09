@@ -1,9 +1,9 @@
 # ferrolabsai — Official Python SDK for Ferro Labs AI Gateway
 
-[![PyPI version](https://badge.fury.io/py/ferrolabsai.svg)](https://badge.fury.io/py/ferrolabsai)
+[![PyPI version](https://badge.fury.io/py/ferrolabsai.svg)](https://pypi.org/project/ferrolabsai/)
 [![Python versions](https://img.shields.io/pypi/pyversions/ferrolabsai.svg)](https://pypi.org/project/ferrolabsai/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![CI](https://github.com/ferro-labs/sdk-python/actions/workflows/ci.yml/badge.svg)](https://github.com/ferro-labs/sdk-python/actions/workflows/ci.yml)
+[![CI](https://github.com/ferro-labs/ferrolabs-python-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/ferro-labs/ferrolabs-python-sdk/actions/workflows/ci.yml)
 
 Route LLM requests across **29 providers and 2,500+ models** through a single OpenAI-compatible API.
 Zero code changes to migrate from `openai`. Built on [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway).
@@ -26,7 +26,42 @@ response = client.chat.completions.create(
 )
 
 print(response.content)
+print(f"Handled by: {response.provider} in {response.latency_ms}ms")
 ```
+
+---
+
+## Why ferrolabsai
+
+- **One API for 29 providers.** OpenAI, Anthropic, Google, Groq, Together, Mistral, Cohere, Bedrock, Vertex, Azure, and more — all via a single client.
+- **Drop-in OpenAI replacement.** The surface matches the OpenAI SDK. Change two lines and keep all your existing code.
+- **Smart routing built in.** Fallback chains, weighted load balancing, and per-request overrides via `route_tag`.
+- **Cost and provider visibility.** Every response includes `provider`, `cost_usd`, `latency_ms`, and `trace_id` — no extra calls.
+- **Self-hostable.** Point `base_url` at any [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance and go.
+- **Typed and async-first.** Dataclass response models, full `AsyncFerroClient`, streaming in both modes.
+
+---
+
+## Contents
+
+- [Installation](#installation)
+- [Quickstart](#quickstart)
+- [Migrate from OpenAI](#migrate-from-openai)
+- [Framework integrations](#framework-integrations)
+- [Usage](#usage)
+  - [Chat completions](#chat-completions)
+  - [Streaming](#streaming)
+  - [Async](#async)
+  - [Embeddings](#embeddings)
+  - [Image generation](#image-generation)
+  - [Model catalog](#model-catalog)
+  - [Ferro extras: templates & route tags](#ferro-extras-templates--route-tags)
+- [Observability](#observability)
+- [Configuration](#configuration)
+- [Error handling](#error-handling)
+- [Admin API (OSS gateway)](#admin-api-oss-gateway)
+- [Development](#development)
+- [License](#license)
 
 ---
 
@@ -36,26 +71,17 @@ print(response.content)
 pip install ferrolabsai
 ```
 
-Requires Python 3.8+. The only dependency is `httpx`.
+Requires **Python 3.9+**. The only runtime dependency is [`httpx`](https://www.python-httpx.org/).
 
 ---
 
 ## Quickstart
 
-### FerroCloud (managed)
-
-Sign up at [ferrolabs.ai](https://ferrolabs.ai) and grab your API key from the dashboard.
+You'll need a running [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance and an API key issued by it.
 
 ```python
 from ferrolabsai import FerroClient
 
-client = FerroClient(api_key="sk-ferro-your-key")
-# base_url defaults to https://api.ferrolabs.ai
-```
-
-### Self-hosted OSS gateway
-
-```python
 client = FerroClient(
     api_key="sk-ferro-your-key",
     base_url="http://localhost:8080",  # your gateway address
@@ -66,16 +92,18 @@ client = FerroClient(
 
 ```bash
 export FERRO_API_KEY="sk-ferro-your-key"
-export FERRO_BASE_URL="https://api.ferrolabs.ai"  # optional
+export FERRO_BASE_URL="http://localhost:8080"
 ```
 
 ```python
-client = FerroClient()  # reads from env automatically
+client = FerroClient()  # reads FERRO_API_KEY / FERRO_BASE_URL automatically
 ```
+
+`FERRO_API_KEY` takes precedence, but `OPENAI_API_KEY` is also accepted as a fallback to make migration painless.
 
 ---
 
-## Migrate from OpenAI in one line
+## Migrate from OpenAI
 
 ```python
 # Before
@@ -91,12 +119,53 @@ Every `client.chat.completions.create(...)` call, every streaming loop, every to
 
 ---
 
-## Features
+## Framework integrations
+
+Ferro's gateway exposes an OpenAI-compatible HTTP API at `/v1/*`, so anything that speaks OpenAI works. Point the base URL at your gateway and keep your existing framework.
+
+### LangChain
+
+```python
+from langchain_openai import ChatOpenAI
+
+llm = ChatOpenAI(
+    api_key="sk-ferro-your-key",
+    base_url="http://localhost:8080/v1",
+    model="gpt-4o",
+)
+response = llm.invoke("Hello from LangChain via Ferro")
+```
+
+### LlamaIndex
+
+```python
+from llama_index.llms.openai import OpenAI
+
+llm = OpenAI(
+    api_key="sk-ferro-your-key",
+    api_base="http://localhost:8080/v1",
+    model="gpt-4o",
+)
+```
+
+### Vercel AI SDK (Next.js)
+
+```typescript
+import { createOpenAI } from '@ai-sdk/openai';
+
+const ferro = createOpenAI({
+  apiKey: process.env.FERRO_API_KEY,
+  baseURL: 'http://localhost:8080/v1',
+});
+```
+
+---
+
+## Usage
 
 ### Chat completions
 
 ```python
-# Non-streaming
 response = client.chat.completions.create(
     model="gpt-4o",
     messages=[
@@ -106,9 +175,9 @@ response = client.chat.completions.create(
     temperature=0.7,
     max_tokens=256,
 )
-print(response.content)
+print(response.content)                       # shortcut for choices[0].message.content
 print(f"Cost: ${response.usage.cost_usd:.6f}")
-print(f"Provider: {response.provider}")  # Ferro tells you which provider handled it
+print(f"Provider: {response.provider}")        # which backend handled it
 ```
 
 ### Streaming
@@ -139,7 +208,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### Async streaming
+Async streaming:
 
 ```python
 async def stream_example():
@@ -187,38 +256,24 @@ anthropic_models = client.models.list(provider="anthropic")
 # Filter by capability
 vision_models = client.models.list(capability="vision")
 
-# Get pricing for a specific model
+# Pricing for a specific model
 info = client.models.retrieve("gpt-4o")
 print(f"Context window: {info.context_window:,} tokens")
-print(f"Input: ${info.input_cost_per_token * 1_000_000:.2f}/M tokens")
+print(f"Input:  ${info.input_cost_per_token * 1_000_000:.2f}/M tokens")
 print(f"Output: ${info.output_cost_per_token * 1_000_000:.2f}/M tokens")
 ```
 
----
+### Ferro extras: templates & route tags
 
-## Ferro-specific features
+The SDK passes two Ferro-specific fields on `chat.completions.create(...)`:
 
-### Server-side prompt templates
-
-Define templates once in the dashboard, render them dynamically at request time.
-Variables use Go `text/template` syntax (`{{.variable_name}}`).
+**`template_id` + `template_variables`** — render a server-side prompt template at request time. Templates are defined in your gateway config and use Go `text/template` syntax (`{{.variable_name}}`):
 
 ```python
-# Create a template (one time)
-template = client.admin.templates.create(
-    name="support-agent",
-    template="You are a support agent for {{.product}}. "
-             "The user's subscription is {{.plan}}. "
-             "Today is {{.date}}. Be concise and helpful.",
-    variables=["product", "plan", "date"],
-)
-client.admin.templates.publish(template.id)
-
-# Use it in completions — variables resolved server-side
 response = client.chat.completions.create(
     model="gpt-4o",
     messages=[{"role": "user", "content": "I can't log in"}],
-    template_id=template.id,
+    template_id="support-agent",
     template_variables={
         "product": "Acme SaaS",
         "plan": "Pro",
@@ -227,26 +282,126 @@ response = client.chat.completions.create(
 )
 ```
 
-### Route tags (override routing per-request)
+**`route_tag`** — override the routing strategy for a single request. Maps to a conditional rule in your gateway config:
 
 ```python
-# Force a specific routing strategy for one request
 response = client.chat.completions.create(
     model="gpt-4o",
     messages=[{"role": "user", "content": "Hello"}],
-    route_tag="low-cost",   # maps to a conditional routing rule
+    route_tag="low-cost",   # e.g. forces fallback to cheaper providers
 )
 ```
+
+Both fields are silently ignored by any OpenAI-compatible backend that doesn't understand them, so it's safe to keep them in shared code paths.
+
+---
+
+## Observability
+
+Every `ChatCompletion` includes fields that tell you what the gateway actually did — no extra API calls, no log scraping:
+
+| Field | Type | Source |
+|---|---|---|
+| `response.provider` | `str` | Which upstream provider served the request (e.g. `"openai"`, `"anthropic"`) |
+| `response.trace_id` | `str` | Correlates this request with gateway logs |
+| `response.latency_ms` | `int` | End-to-end gateway latency |
+| `response.usage.cost_usd` | `float` | Computed cost in USD |
+| `response.usage.cache_hit` | `bool` | Whether the response came from the gateway's semantic cache |
+| `response.usage.prompt_tokens` / `completion_tokens` / `total_tokens` | `int` | Standard OpenAI token counts |
+
+```python
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+
+print(f"trace={response.trace_id} provider={response.provider} "
+      f"latency={response.latency_ms}ms cost=${response.usage.cost_usd:.6f}")
+```
+
+To dig deeper into a specific request, use `client.admin.logs.list(trace_id=...)` — see [Admin API](#admin-api-oss-gateway).
+
+---
+
+## Configuration
+
+`FerroClient` and `AsyncFerroClient` accept the same keyword arguments:
+
+```python
+client = FerroClient(
+    api_key="sk-ferro-...",                  # or FERRO_API_KEY env var
+    base_url="http://localhost:8080",        # or FERRO_BASE_URL env var
+    timeout=120.0,                           # seconds (default: 120.0)
+    max_retries=2,                           # retries on connection errors (default: 2)
+    default_headers={"x-env": "prod"},       # merged into every request
+    http_client=my_httpx_client,             # bring your own httpx.Client
+)
+```
+
+**Retries** are triggered only by `httpx.ConnectError` and `httpx.TimeoutException` — HTTP errors (4xx/5xx) propagate immediately as typed exceptions so you can handle them yourself.
+
+**Bring-your-own httpx client** lets you configure proxies, custom TLS, connection pool limits, or instrumentation middleware and reuse that across the SDK:
+
+```python
+import httpx
+
+pooled = httpx.Client(limits=httpx.Limits(max_connections=50))
+client = FerroClient(api_key="sk-ferro-...", http_client=pooled)
+```
+
+Close the client explicitly when you're done (or use a `with` block):
+
+```python
+with FerroClient(api_key="sk-ferro-...") as client:
+    ...
+# or
+client = FerroClient(api_key="sk-ferro-...")
+try:
+    ...
+finally:
+    client.close()
+```
+
+---
+
+## Error handling
+
+```python
+from ferrolabsai import (
+    FerroClient,
+    FerroAuthError,
+    FerroRateLimitError,
+    FerroNotFoundError,
+    FerroServerError,
+    FerroConnectionError,
+)
+
+try:
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "Hello"}],
+    )
+except FerroAuthError:
+    print("Invalid API key — check FERRO_API_KEY")
+except FerroRateLimitError:
+    print("Rate limit hit — back off and retry")
+except FerroNotFoundError:
+    print("Model or endpoint not found")
+except FerroServerError as e:
+    print(f"Gateway error {e.status_code} — upstream provider may be down")
+except FerroConnectionError:
+    print("Cannot reach gateway — is it running?")
+```
+
+All HTTP-level exceptions inherit from `FerroAPIError` and expose `.status_code`, `.code`, `.message`, and `.request_id`. `FerroConnectionError` and `FerroStreamError` inherit from `FerroError` directly.
 
 ---
 
 ## Admin API (OSS gateway)
 
-These APIs are available on any self-hosted Ferro Labs AI Gateway instance
-or via FerroCloud. Requires an admin-scoped API key.
+These APIs are available on any self-hosted Ferro Labs AI Gateway instance. Requires an admin-scoped API key.
 
-The admin namespace mirrors the OSS gateway's `/admin/*` HTTP surface
-defined in [`internal/admin/handlers.go`](https://github.com/ferro-labs/ai-gateway/blob/main/internal/admin/handlers.go).
+The admin namespace mirrors the OSS gateway's `/admin/*` HTTP surface defined in [`internal/admin/handlers.go`](https://github.com/ferro-labs/ai-gateway/blob/main/internal/admin/handlers.go).
 
 ### API keys
 
@@ -276,9 +431,7 @@ client.admin.keys.delete("key_id")
 
 ### Gateway routing config
 
-The OSS gateway has a single *active* routing config. Use `history()` to
-inspect prior versions and `rollback(version)` to revert. Updates are
-zero-downtime hot reloads.
+The OSS gateway has a single *active* routing config. Use `history()` to inspect prior versions and `rollback(version)` to revert. Updates are zero-downtime hot reloads.
 
 ```python
 # Read the current config
@@ -295,8 +448,8 @@ client.admin.config.update({
         {"virtual_key": "groq",      "weight": 1},
     ],
     "plugins": [
-        {"name": "cache",   "enabled": True},
-        {"name": "logger",  "enabled": True},
+        {"name": "cache",  "enabled": True},
+        {"name": "logger", "enabled": True},
     ],
 })
 
@@ -307,8 +460,7 @@ client.admin.config.rollback(history[-2].version)
 
 ### Request logs
 
-The gateway logs every request (when the `logger` plugin is enabled).
-Query, aggregate, and prune them via `client.admin.logs`.
+The gateway logs every request (when the `logger` plugin is enabled). Query, aggregate, and prune via `client.admin.logs`.
 
 ```python
 # Recent failures
@@ -323,7 +475,7 @@ stats = client.admin.logs.stats()
 client.admin.logs.delete(before="2026-01-01T00:00:00Z")
 ```
 
-### Providers and plugins
+### Providers, plugins, dashboard
 
 ```python
 providers = client.admin.providers.list()  # registered LLM providers
@@ -334,91 +486,22 @@ health    = client.admin.health()          # gateway health check
 
 ---
 
-## Error handling
-
-```python
-from ferrolabsai import (
-    FerroClient,
-    FerroAuthError,
-    FerroRateLimitError,
-    FerroNotFoundError,
-    FerroServerError,
-    FerroConnectionError,
-)
-
-try:
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": "Hello"}],
-    )
-except FerroAuthError:
-    print("Invalid API key — check FERRO_API_KEY")
-except FerroRateLimitError:
-    print("Rate limit hit — back off and retry")
-except FerroServerError as e:
-    print(f"Gateway error {e.status_code} — provider may be down")
-except FerroConnectionError:
-    print("Cannot reach gateway — is it running?")
-```
-
----
-
-## Framework integrations
-
-### LangChain
-
-```python
-from langchain_openai import ChatOpenAI
-
-llm = ChatOpenAI(
-    api_key="sk-ferro-your-key",
-    base_url="https://api.ferrolabs.ai/v1",
-    model="gpt-4o",
-)
-response = llm.invoke("Hello from LangChain via Ferro")
-```
-
-### LlamaIndex
-
-```python
-from llama_index.llms.openai import OpenAI
-
-llm = OpenAI(
-    api_key="sk-ferro-your-key",
-    api_base="https://api.ferrolabs.ai/v1",
-    model="gpt-4o",
-)
-```
-
-### Vercel AI SDK (Next.js)
-
-```typescript
-import { createOpenAI } from '@ai-sdk/openai';
-
-const ferro = createOpenAI({
-  apiKey: process.env.FERRO_API_KEY,
-  baseURL: 'https://api.ferrolabs.ai/v1',
-});
-```
-
----
-
 ## Development
 
 ```bash
-git clone https://github.com/ferro-labs/sdk-python
-cd sdk-python
-pip install -e ".[dev]"
-
-# Run tests (no gateway needed — all HTTP is mocked)
-pytest tests/ -v
-
-# Type check
-mypy ferrolabsai/
-
-# Lint
-ruff check ferrolabsai/
+git clone https://github.com/ferro-labs/ferrolabs-python-sdk
+cd ferrolabs-python-sdk
+make install          # editable install with dev dependencies
+make test             # pytest (all HTTP is mocked — no gateway needed)
+make lint             # ruff + mypy
+make format           # ruff format
+make build            # build sdist + wheel into dist/
+make clean            # remove artifacts
 ```
+
+All 30 tests run in under a second against `pytest-httpx` fixtures, so no network or running gateway is required.
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ---
 
@@ -429,6 +512,5 @@ Apache 2.0 — see [LICENSE](LICENSE).
 ## Links
 
 - [Ferro Labs AI Gateway (OSS)](https://github.com/ferro-labs/ai-gateway)
-- [FerroCloud Dashboard](https://app.ferrocloud.io)
-- [Documentation](https://docs.ferrolabs.ai/sdk/python)
-- [Discord Community](https://discord.gg/ferrolabs)
+- [Issue tracker](https://github.com/ferro-labs/ferrolabs-python-sdk/issues)
+- [Changelog](CHANGELOG.md)
