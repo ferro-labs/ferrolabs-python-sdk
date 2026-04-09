@@ -58,6 +58,25 @@ class TestClientInit:
         c = FerroClient(api_key=API_KEY, base_url="https://localhost:8080/")
         assert c.base_url == "https://localhost:8080"
 
+    def test_rejects_negative_max_retries(self):
+        with pytest.raises(ValueError, match="max_retries must be >= 0"):
+            FerroClient(api_key=API_KEY, max_retries=-1)
+
+    def test_async_rejects_negative_max_retries(self):
+        with pytest.raises(ValueError, match="max_retries must be >= 0"):
+            AsyncFerroClient(api_key=API_KEY, max_retries=-1)
+
+    @pytest.mark.parametrize("client_cls", [FerroClient, AsyncFerroClient])
+    def test_accepts_zero_max_retries(self, client_cls):
+        client = client_cls(api_key=API_KEY, max_retries=0)
+        assert client.max_retries == 0
+
+    @pytest.mark.parametrize("client_cls", [FerroClient, AsyncFerroClient])
+    @pytest.mark.parametrize("invalid_value", [1.5, True])
+    def test_rejects_non_integer_max_retries(self, client_cls, invalid_value):
+        with pytest.raises(TypeError, match="max_retries must be an integer"):
+            client_cls(api_key=API_KEY, max_retries=invalid_value)
+
     def test_has_expected_namespaces(self, client):
         assert hasattr(client, "chat")
         assert hasattr(client.chat, "completions")

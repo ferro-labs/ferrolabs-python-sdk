@@ -23,6 +23,14 @@ DEFAULT_TIMEOUT = 120.0
 DEFAULT_MAX_RETRIES = 2
 
 
+def _validate_max_retries(max_retries: object) -> int:
+    if isinstance(max_retries, bool) or not isinstance(max_retries, int):
+        raise TypeError("max_retries must be an integer")
+    if max_retries < 0:
+        raise ValueError("max_retries must be >= 0")
+    return max_retries
+
+
 class FerroClient:
     """
     Primary client for Ferro Labs AI Gateway.
@@ -71,7 +79,7 @@ class FerroClient:
             "/"
         )
         self.timeout = timeout
-        self.max_retries = max_retries
+        self.max_retries = _validate_max_retries(max_retries)
 
         self._default_headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -233,7 +241,7 @@ class AsyncFerroClient:
             "/"
         )
         self.timeout = timeout
-        self.max_retries = max_retries
+        self.max_retries = _validate_max_retries(max_retries)
 
         self._default_headers = {
             "Authorization": f"Bearer {self.api_key}",
