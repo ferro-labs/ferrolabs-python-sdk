@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main, development]
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'        # real semver, e.g. v0.1.0
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'      # prereleases, e.g. v0.2.0-rc1
+  pull_request:
+    branches: [main, development]
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check ferrolabsai/
+
+      - name: Type check
+        run: mypy ferrolabsai/ --ignore-missing-imports
+        # Only enforce strict types on 3.11+
+        if: matrix.python-version == '3.11'
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  publish:
+    name: Publish to PyPI
+    needs: test
+    runs-on: ubuntu-latest
+    # Only run on semver tag pushes (see `on.push.tags` above).
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/project/ferrolabsai/
+
+    # Prevent two concurrent publishes of the same tag from racing.
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: false
+
+    permissions:
+      id-token: write   # OIDC trusted publishing to PyPI — no API key needed
+      contents: write   # softprops/action-gh-release needs this to create the Release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Assert tag matches pyproject.toml version
+        run: |
+          python <<'PY'
+          import os, sys, tomllib
+          with open("pyproject.toml", "rb") as f:
+              version = tomllib.load(f)["project"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected = f"v{version}"
+          if tag != expected:
+              print(f"::error::Tag {tag!r} does not match pyproject.toml version {expected!r}")
+              sys.exit(1)
+          print(f"Tag {tag} matches pyproject.toml {expected}")
+          PY
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Build
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
