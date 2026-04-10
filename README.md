@@ -1,4 +1,4 @@
-# ferrolabsai — Official Python SDK for Ferro Labs AI Gateway
+# Ferro Labs AI Gateway - Python SDK
 
 [![PyPI version](https://badge.fury.io/py/ferrolabsai.svg)](https://pypi.org/project/ferrolabsai/)
 [![Python versions](https://img.shields.io/pypi/pyversions/ferrolabsai.svg)](https://pypi.org/project/ferrolabsai/)
