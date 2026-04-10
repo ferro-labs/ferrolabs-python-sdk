@@ -38,7 +38,7 @@ scope for read endpoints), passed via the standard
 from __future__ import annotations
 
 import builtins
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ..types import (
     APIKey,
@@ -46,9 +46,6 @@ from ..types import (
     CreatedAPIKey,
     GatewayConfig,
 )
-
-if TYPE_CHECKING:
-    from ..client import FerroClient
 
 
 class Admin:
@@ -86,7 +83,7 @@ class Admin:
         client.admin.config.rollback(history[-2].version)
     """
 
-    def __init__(self, client: FerroClient) -> None:
+    def __init__(self, client: Any) -> None:
         self._client = client
         self.keys = _KeysResource(client)
         self.config = _ConfigResource(client)
@@ -96,11 +93,11 @@ class Admin:
 
     def dashboard(self) -> dict[str, Any]:
         """``GET /admin/dashboard`` — provider/key counts and request log totals."""
-        return self._client._request("GET", "/admin/dashboard")
+        return self._client._request("GET", "/admin/dashboard")  # type: ignore[no-any-return]
 
     def health(self) -> dict[str, Any]:
         """``GET /admin/health`` — gateway health check."""
-        return self._client._request("GET", "/admin/health")
+        return self._client._request("GET", "/admin/health")  # type: ignore[no-any-return]
 
 
 # ----------------------------------------------------------------------
@@ -111,7 +108,7 @@ class Admin:
 class _KeysResource:
     """Manage gateway API keys via ``/admin/keys``."""
 
-    def __init__(self, client: FerroClient) -> None:
+    def __init__(self, client: Any) -> None:
         self._client = client
 
     def list(self) -> builtins.list[APIKey]:
@@ -221,7 +218,7 @@ class _KeysResource:
             params["active"] = "true" if active else "false"
         if since is not None:
             params["since"] = since
-        return self._client._request("GET", "/admin/keys/usage", params=params)
+        return self._client._request("GET", "/admin/keys/usage", params=params)  # type: ignore[no-any-return]
 
 
 # ----------------------------------------------------------------------
@@ -238,7 +235,7 @@ class _ConfigResource:
     revert. Updates are zero-downtime hot reloads.
     """
 
-    def __init__(self, client: FerroClient) -> None:
+    def __init__(self, client: Any) -> None:
         self._client = client
 
     def get(self) -> GatewayConfig:
@@ -253,7 +250,7 @@ class _ConfigResource:
         ``config`` is the raw routing-config dict (``strategy``, ``targets``,
         ``plugins``, ``aliases``, etc.).
         """
-        return self._client._request("POST", "/admin/config", json=config)
+        return self._client._request("POST", "/admin/config", json=config)  # type: ignore[no-any-return]
 
     def update(self, config: dict[str, Any]) -> dict[str, Any]:
         """
@@ -263,11 +260,11 @@ class _ConfigResource:
         requests complete with the previous config; the next request after
         the update uses the new one.
         """
-        return self._client._request("PUT", "/admin/config", json=config)
+        return self._client._request("PUT", "/admin/config", json=config)  # type: ignore[no-any-return]
 
     def delete(self) -> dict[str, Any]:
         """``DELETE /admin/config`` — reset the active config to its default."""
-        return self._client._request("DELETE", "/admin/config")
+        return self._client._request("DELETE", "/admin/config")  # type: ignore[no-any-return]
 
     def history(self) -> list[ConfigHistoryEntry]:
         """``GET /admin/config/history`` — list all prior config versions."""
@@ -277,7 +274,7 @@ class _ConfigResource:
 
     def rollback(self, version: int) -> dict[str, Any]:
         """``POST /admin/config/rollback/{version}`` — revert to a prior version."""
-        return self._client._request("POST", f"/admin/config/rollback/{version}")
+        return self._client._request("POST", f"/admin/config/rollback/{version}")  # type: ignore[no-any-return]
 
 
 # ----------------------------------------------------------------------
@@ -297,7 +294,7 @@ class _LogsResource:
     ``logger`` plugin). Endpoints return HTTP 501 if it isn't.
     """
 
-    def __init__(self, client: FerroClient) -> None:
+    def __init__(self, client: Any) -> None:
         self._client = client
 
     def list(
@@ -330,7 +327,7 @@ class _LogsResource:
             params["model"] = model
         if since is not None:
             params["since"] = since
-        return self._client._request("GET", "/admin/logs", params=params)
+        return self._client._request("GET", "/admin/logs", params=params)  # type: ignore[no-any-return]
 
     def stats(
         self,
@@ -344,7 +341,7 @@ class _LogsResource:
             params["limit"] = limit
         if since is not None:
             params["since"] = since
-        return self._client._request("GET", "/admin/logs/stats", params=params or None)
+        return self._client._request("GET", "/admin/logs/stats", params=params or None)  # type: ignore[no-any-return]
 
     def delete(
         self,
@@ -364,7 +361,7 @@ class _LogsResource:
             params["before"] = before
         if stage is not None:
             params["stage"] = stage
-        return self._client._request("DELETE", "/admin/logs", params=params or None)
+        return self._client._request("DELETE", "/admin/logs", params=params or None)  # type: ignore[no-any-return]
 
 
 # ----------------------------------------------------------------------
@@ -375,7 +372,7 @@ class _LogsResource:
 class _ProvidersResource:
     """List provider plugins via ``/admin/providers``."""
 
-    def __init__(self, client: FerroClient) -> None:
+    def __init__(self, client: Any) -> None:
         self._client = client
 
     def list(self) -> builtins.list[dict[str, Any]]:
@@ -389,7 +386,7 @@ class _ProvidersResource:
 class _PluginsResource:
     """List installed plugins via ``/admin/plugins``."""
 
-    def __init__(self, client: FerroClient) -> None:
+    def __init__(self, client: Any) -> None:
         self._client = client
 
     def list(self) -> builtins.list[dict[str, Any]]:

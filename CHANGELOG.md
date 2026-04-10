@@ -26,4 +26,4 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Context manager support (`with FerroClient(...) as client:`)
 - Environment variable support: `FERRO_API_KEY`, `FERRO_BASE_URL`, `OPENAI_API_KEY` fallback
 - Test suite with 100% mocked HTTP (no real gateway needed)
-- GitHub Actions CI across Python 3.8–3.12 with PyPI trusted publishing
+- GitHub Actions CI across Python 3.9–3.12 with PyPI trusted publishing

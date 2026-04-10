@@ -9,11 +9,18 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
 from ferrolabsai import AsyncFerroClient, FerroClient
-from ferrolabsai.exceptions import FerroAuthError, FerroNotFoundError, FerroRateLimitError
+from ferrolabsai.exceptions import (
+    FerroAPIError,
+    FerroAuthError,
+    FerroNotFoundError,
+    FerroRateLimitError,
+    FerroServerError,
+)
 
 BASE_URL = "http://localhost:8080"
 API_KEY = "sk-ferro-testkey123"
@@ -538,3 +545,171 @@ class TestContextManager:
     async def test_async_context_manager(self):
         async with AsyncFerroClient(api_key=API_KEY) as c:
             assert c.api_key == API_KEY
+
+
+# ------------------------------------------------------------------
+# P0-1: Streaming error handling routes through _raise_api_error
+# ------------------------------------------------------------------
+
+
+class TestStreamingErrorHandling:
+    def test_sync_stream_raises_ferro_error_not_httpx(self, client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            status_code=401,
+            json={"error": {"message": "Invalid API key"}},
+        )
+        with pytest.raises(FerroAuthError, match="Invalid API key"):
+            list(
+                client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": "Hi"}],
+                    stream=True,
+                )
+            )
+
+    def test_sync_stream_429_raises_rate_limit(self, client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            status_code=429,
+            json={"error": {"message": "Rate limit exceeded"}},
+        )
+        with pytest.raises(FerroRateLimitError):
+            list(
+                client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": "Hi"}],
+                    stream=True,
+                )
+            )
+
+    def test_sync_stream_500_raises_server_error(self, client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            status_code=500,
+            json={"error": {"message": "Internal error"}},
+        )
+        with pytest.raises(FerroServerError):
+            list(
+                client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": "Hi"}],
+                    stream=True,
+                )
+            )
+
+
+# ------------------------------------------------------------------
+# P0-2: Async completions has parity params
+# ------------------------------------------------------------------
+
+
+class TestAsyncCompletionsParams:
+    @pytest.mark.asyncio
+    async def test_forwards_frequency_presence_penalty(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            json=COMPLETION_RESPONSE,
+        )
+        await async_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "Hi"}],
+            frequency_penalty=0.5,
+            presence_penalty=0.3,
+        )
+        body = json.loads(httpx_mock.get_requests()[0].content)
+        assert body["frequency_penalty"] == 0.5
+        assert body["presence_penalty"] == 0.3
+
+    @pytest.mark.asyncio
+    async def test_forwards_route_tag(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            json=COMPLETION_RESPONSE,
+        )
+        await async_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "Hi"}],
+            route_tag="fast",
+        )
+        body = json.loads(httpx_mock.get_requests()[0].content)
+        assert body["x_route_tag"] == "fast"
+
+
+# ------------------------------------------------------------------
+# P0-3: BYOC http_client merges auth headers
+# ------------------------------------------------------------------
+
+
+class TestBYOCHttpClient:
+    def test_sync_byoc_merges_headers(self):
+        custom = httpx.Client(base_url=BASE_URL)
+        client = FerroClient(api_key=API_KEY, base_url=BASE_URL, http_client=custom)
+        assert client._http is custom
+        assert "Authorization" in custom.headers
+        assert custom.headers["Authorization"] == f"Bearer {API_KEY}"
+        custom.close()
+
+    def test_async_byoc_merges_headers(self):
+        custom = httpx.AsyncClient(base_url=BASE_URL)
+        client = AsyncFerroClient(api_key=API_KEY, base_url=BASE_URL, http_client=custom)
+        assert client._http is custom
+        assert "Authorization" in custom.headers
+        assert custom.headers["Authorization"] == f"Bearer {API_KEY}"
+
+
+# ------------------------------------------------------------------
+# P1-4: AsyncFerroClient has all namespaces
+# ------------------------------------------------------------------
+
+
+class TestAsyncClientNamespaces:
+    def test_has_all_namespaces(self):
+        client = AsyncFerroClient(api_key=API_KEY)
+        assert hasattr(client, "chat")
+        assert hasattr(client.chat, "completions")
+        assert hasattr(client, "embeddings")
+        assert hasattr(client, "images")
+        assert hasattr(client, "models")
+        assert hasattr(client, "admin")
+
+
+# ------------------------------------------------------------------
+# P1-7: request_id populated from response headers
+# ------------------------------------------------------------------
+
+
+class TestRequestIdPropagation:
+    def test_request_id_from_header(self, client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            status_code=500,
+            json={"error": {"message": "Server error"}},
+            headers={"x-request-id": "req-abc-123"},
+        )
+        with pytest.raises(FerroServerError) as exc_info:
+            client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": "Hi"}],
+            )
+        assert exc_info.value.request_id == "req-abc-123"
+
+    def test_request_id_from_body_trace_id(self, client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            status_code=400,
+            json={"error": {"message": "Bad request"}, "trace_id": "trace-xyz"},
+        )
+        with pytest.raises(FerroAPIError) as exc_info:
+            client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": "Hi"}],
+            )
+        assert exc_info.value.request_id == "trace-xyz"

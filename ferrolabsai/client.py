@@ -88,11 +88,15 @@ class FerroClient:
             **(default_headers or {}),
         }
 
-        self._http = http_client or httpx.Client(
-            base_url=self.base_url,
-            timeout=timeout,
-            headers=self._default_headers,
-        )
+        if http_client is not None:
+            http_client.headers.update(self._default_headers)
+            self._http = http_client
+        else:
+            self._http = httpx.Client(
+                base_url=self.base_url,
+                timeout=timeout,
+                headers=self._default_headers,
+            )
 
         # Resource namespaces — mirrors OpenAI SDK layout
         self.chat = _ChatNamespace(self)
@@ -169,7 +173,11 @@ class FerroClient:
     def _stream_request(self, path: str, json: Any) -> Iterator[str]:
         """Yields raw SSE lines for streaming completions."""
         with self._http.stream("POST", path, json=json) as response:
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                response.read()
+                _raise_api_error(e)
             for line in response.iter_lines():
                 if line:
                     yield line
@@ -228,6 +236,7 @@ class AsyncFerroClient:
         timeout: float = DEFAULT_TIMEOUT,
         max_retries: int = DEFAULT_MAX_RETRIES,
         default_headers: dict[str, str] | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self.api_key = (
             api_key or os.environ.get("FERRO_API_KEY") or os.environ.get("OPENAI_API_KEY")
@@ -250,16 +259,23 @@ class AsyncFerroClient:
             **(default_headers or {}),
         }
 
-        self._http = httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=timeout,
-            headers=self._default_headers,
-        )
+        if http_client is not None:
+            http_client.headers.update(self._default_headers)
+            self._http = http_client
+        else:
+            self._http = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=timeout,
+                headers=self._default_headers,
+            )
 
         from .embeddings.async_resource import AsyncEmbeddings
 
         self.chat = _AsyncChatNamespace(self)
         self.embeddings = AsyncEmbeddings(self)
+        self.images = Images(self)
+        self.models = Models(self)
+        self.admin = Admin(self)
 
     async def _request(
         self,
@@ -315,20 +331,25 @@ def _raise_api_error(e: httpx.HTTPStatusError) -> None:
     )
 
     status = e.response.status_code
+    request_id = (
+        e.response.headers.get("x-request-id")
+        or e.response.headers.get("x-ferro-request-id")
+    )
     try:
         body = e.response.json()
         message = body.get("error", {}).get("message") or body.get("message") or str(e)
         code = body.get("error", {}).get("code") or body.get("code")
+        request_id = request_id or body.get("request_id") or body.get("trace_id")
     except Exception:
         message = e.response.text or str(e)
         code = None
 
     if status == 401:
-        raise FerroAuthError(message) from e
+        raise FerroAuthError(message, request_id=request_id) from e
     if status == 429:
-        raise FerroRateLimitError(message) from e
+        raise FerroRateLimitError(message, request_id=request_id) from e
     if status == 404:
-        raise FerroNotFoundError(message) from e
+        raise FerroNotFoundError(message, request_id=request_id) from e
     if status >= 500:
-        raise FerroServerError(message, status_code=status) from e
-    raise FerroAPIError(message, status_code=status, code=code) from e
+        raise FerroServerError(message, status_code=status, request_id=request_id) from e
+    raise FerroAPIError(message, status_code=status, code=code, request_id=request_id) from e
