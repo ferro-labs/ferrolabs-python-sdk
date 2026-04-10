@@ -1,9 +1,9 @@
 <div align="center">
   <table border="0" cellspacing="0" cellpadding="0"><tr>
     <td rowspan="2"><img src="https://raw.githubusercontent.com/ferro-labs/ai-gateway/refs/heads/main/docs/logo.png" alt="Ferro Labs" width="64" /></td>
-    <td><h1>Ferro Labs - AI Gateway</h1></td>
+    <td align="center"><h1>Ferro Labs - AI Gateway</h1></td>
   </tr><tr>
-    <td><strong>Python SDK</strong></td>
+    <td align="center"><strong>Python SDK</strong></td>
   </tr></table>
   <p>
     <a href="https://pypi.org/project/ferrolabsai/"><img src="https://badge.fury.io/py/ferrolabsai.svg" alt="PyPI version" /></a>
