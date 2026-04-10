@@ -1,9 +1,14 @@
-# Ferro Labs AI Gateway - Python SDK
-
-[![PyPI version](https://badge.fury.io/py/ferrolabsai.svg)](https://pypi.org/project/ferrolabsai/)
-[![Python versions](https://img.shields.io/pypi/pyversions/ferrolabsai.svg)](https://pypi.org/project/ferrolabsai/)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![CI](https://github.com/ferro-labs/ferrolabs-python-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/ferro-labs/ferrolabs-python-sdk/actions/workflows/ci.yml)
+<div align="center">
+  <img src="https://raw.githubusercontent.com/ferro-labs/ai-gateway/refs/heads/main/docs/logo.png" alt="Ferro Labs" width="120" />
+  <h1>Ferro Labs AI Gateway</h1>
+  <p><strong>Python SDK</strong></p>
+  <p>
+    <a href="https://pypi.org/project/ferrolabsai/"><img src="https://badge.fury.io/py/ferrolabsai.svg" alt="PyPI version" /></a>
+    <a href="https://pypi.org/project/ferrolabsai/"><img src="https://img.shields.io/pypi/pyversions/ferrolabsai.svg" alt="Python versions" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" /></a>
+    <a href="https://github.com/ferro-labs/ferrolabs-python-sdk/actions/workflows/ci.yml"><img src="https://github.com/ferro-labs/ferrolabs-python-sdk/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  </p>
+</div>
 
 Route LLM requests across **29 providers and 2,500+ models** through a single OpenAI-compatible API.
 Zero code changes to migrate from `openai`. Built on [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway).
