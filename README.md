@@ -1,7 +1,10 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/ferro-labs/ai-gateway/refs/heads/main/docs/logo.png" alt="Ferro Labs" width="120" />
-  <h1>Ferro Labs AI Gateway</h1>
-  <p><strong>Python SDK</strong></p>
+  <table border="0" cellspacing="0" cellpadding="0"><tr>
+    <td rowspan="2"><img src="https://raw.githubusercontent.com/ferro-labs/ai-gateway/refs/heads/main/docs/logo.png" alt="Ferro Labs" width="64" /></td>
+    <td><h1>Ferro Labs - AI Gateway</h1></td>
+  </tr><tr>
+    <td><strong>Python SDK</strong></td>
+  </tr></table>
   <p>
     <a href="https://pypi.org/project/ferrolabsai/"><img src="https://badge.fury.io/py/ferrolabsai.svg" alt="PyPI version" /></a>
     <a href="https://pypi.org/project/ferrolabsai/"><img src="https://img.shields.io/pypi/pyversions/ferrolabsai.svg" alt="Python versions" /></a>
