@@ -7,6 +7,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.2.0] — 2026-05-14
+
+### Added
+- Awaitable async resources for models, images, and admin endpoints:
+  `async_client.models.*`, `async_client.images.generate()`, and
+  `async_client.admin.*` now use async request paths instead of sync resource
+  classes.
+- Capped exponential retry backoff for sync and async connection/timeout
+  retries.
+- `py.typed` marker for downstream type checkers.
+
+### Changed
+- Package version lookup now uses package metadata through a shared version
+  helper, keeping `__version__` and the client user agent aligned.
+- `route_tag`, `template_id`, and `template_variables` remain forwarded
+  request fields, but are documented as gateway-dependent until OSS gateway
+  support is confirmed.
+
+### Fixed
+- Async custom HTTP clients merge SDK auth/default headers, matching sync
+  client behavior.
+- Request IDs propagate from error response headers or `trace_id` response
+  bodies into Ferro exceptions.
+
 ## [0.1.0] — 2026-04-09
 
 ### Added

@@ -43,6 +43,7 @@ Migrate from openai in one line::
     client = FerroClient(api_key="sk-ferro-...")
 """
 
+from ._version import __version__
 from .client import AsyncFerroClient, FerroClient
 from .exceptions import (
     FerroAPIError,
@@ -74,6 +75,7 @@ from .types import (
 )
 
 __all__ = [
+    "__version__",
     # Clients
     "FerroClient",
     "AsyncFerroClient",
@@ -105,5 +107,3 @@ __all__ = [
     "GatewayConfig",
     "ConfigHistoryEntry",
 ]
-
-__version__ = "0.1.0"

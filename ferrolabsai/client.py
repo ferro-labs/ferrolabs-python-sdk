@@ -5,12 +5,15 @@ Points at any self-hosted Ferro Labs AI Gateway instance.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from collections.abc import Iterator
 from typing import Any, Literal, cast, overload
 
 import httpx
 
+from ._version import __version__
 from .admin.resource import Admin
 from .completions.resource import Completions
 from .embeddings.resource import Embeddings
@@ -18,9 +21,11 @@ from .exceptions import FerroAuthError, FerroConnectionError
 from .images.resource import Images
 from .models.resource import Models
 
-DEFAULT_BASE_URL = "http://localhost:8080"
-DEFAULT_TIMEOUT = 120.0
-DEFAULT_MAX_RETRIES = 2
+DEFAULT_BASE_URL: str = "http://localhost:8080"
+DEFAULT_TIMEOUT: float = 120.0
+DEFAULT_MAX_RETRIES: int = 2
+DEFAULT_RETRY_BACKOFF_BASE: float = 0.5
+DEFAULT_RETRY_BACKOFF_MAX: float = 8.0
 
 
 def _validate_max_retries(max_retries: object) -> int:
@@ -29,6 +34,12 @@ def _validate_max_retries(max_retries: object) -> int:
     if max_retries < 0:
         raise ValueError("max_retries must be >= 0")
     return max_retries
+
+
+def _retry_delay(attempt: int) -> float:
+    """Return capped exponential retry delay for a 1-based retry attempt."""
+    delay = DEFAULT_RETRY_BACKOFF_BASE * float(2 ** max(attempt - 1, 0))
+    return min(delay, DEFAULT_RETRY_BACKOFF_MAX)
 
 
 class FerroClient:
@@ -164,9 +175,13 @@ class FerroClient:
                     f"Cannot reach {self.base_url}. Is the gateway running? ({e})"
                 )
                 attempt += 1
+                if attempt <= self.max_retries:
+                    time.sleep(_retry_delay(attempt))
             except httpx.TimeoutException as e:
                 last_exc = FerroConnectionError(f"Request timed out after {self.timeout}s: {e}")
                 attempt += 1
+                if attempt <= self.max_retries:
+                    time.sleep(_retry_delay(attempt))
 
         raise last_exc  # type: ignore
 
@@ -184,12 +199,7 @@ class FerroClient:
 
     @staticmethod
     def _version() -> str:
-        try:
-            from importlib.metadata import version
-
-            return version("ferrolabsai")
-        except Exception:
-            return "0.1.0"
+        return __version__
 
     def close(self) -> None:
         """Close the underlying HTTP connection pool."""
@@ -269,13 +279,16 @@ class AsyncFerroClient:
                 headers=self._default_headers,
             )
 
+        from .admin.async_resource import AsyncAdmin
         from .embeddings.async_resource import AsyncEmbeddings
+        from .images.async_resource import AsyncImages
+        from .models.async_resource import AsyncModels
 
         self.chat = _AsyncChatNamespace(self)
         self.embeddings = AsyncEmbeddings(self)
-        self.images = Images(self)
-        self.models = Models(self)
-        self.admin = Admin(self)
+        self.images = AsyncImages(self)
+        self.models = AsyncModels(self)
+        self.admin = AsyncAdmin(self)
 
     async def _request(
         self,
@@ -294,9 +307,18 @@ class AsyncFerroClient:
                 return cast("dict[str, Any]", response.json())
             except httpx.HTTPStatusError as e:
                 _raise_api_error(e)
-            except (httpx.ConnectError, httpx.TimeoutException) as e:
-                last_exc = FerroConnectionError(str(e))
+            except httpx.ConnectError as e:
+                last_exc = FerroConnectionError(
+                    f"Cannot reach {self.base_url}. Is the gateway running? ({e})"
+                )
                 attempt += 1
+                if attempt <= self.max_retries:
+                    await asyncio.sleep(_retry_delay(attempt))
+            except httpx.TimeoutException as e:
+                last_exc = FerroConnectionError(f"Request timed out after {self.timeout}s: {e}")
+                attempt += 1
+                if attempt <= self.max_retries:
+                    await asyncio.sleep(_retry_delay(attempt))
         raise last_exc  # type: ignore
 
     async def close(self) -> None:
