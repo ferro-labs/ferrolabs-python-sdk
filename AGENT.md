@@ -20,7 +20,7 @@ This document provides instructions for AI coding agents working on the `ferrola
 
 ```
 ferrolabs-python-sdk/
-├── ferrolabsai/                  # Main package
+├── ferrolabsai/                  # Main package (publishes `ferrolabsai` to PyPI)
 │   ├── __init__.py               # Public API surface — all exports live here
 │   ├── client.py                 # FerroClient + AsyncFerroClient implementations
 │   ├── types.py                  # Dataclass response models (ChatCompletion, Usage, etc.)
@@ -38,13 +38,32 @@ ferrolabs-python-sdk/
 │   │   └── resource.py
 │   └── exceptions/               # Exception hierarchy
 │       └── __init__.py
+├── integrations/                 # Sibling framework adapter packages (own pyproject.toml each)
+│   ├── README.md                 # Layout + publishing overview
+│   ├── langchain-ferrolabsai/    # Publishes `langchain-ferrolabsai` to PyPI
+│   │   ├── pyproject.toml
+│   │   ├── README.md
+│   │   ├── CHANGELOG.md
+│   │   ├── LICENSE
+│   │   ├── langchain_ferrolabsai/__init__.py
+│   │   └── tests/test_placeholder.py
+│   └── llama-index-llms-ferrolabsai/   # Publishes `llama-index-llms-ferrolabsai` to PyPI
+│       ├── pyproject.toml
+│       ├── README.md
+│       ├── CHANGELOG.md
+│       ├── LICENSE
+│       ├── llama_index/llms/ferrolabsai/__init__.py   # PEP 420 namespace package
+│       └── tests/test_placeholder.py
 ├── tests/
 │   └── test_sdk.py               # Full test suite (pytest + pytest-httpx)
 ├── docs/
 │   └── architecture.md           # SDK architecture, design decisions, request lifecycle
-├── pyproject.toml                # Build config, dependencies, tool settings
+├── pyproject.toml                # Build config, dependencies, tool settings (ferrolabsai)
 ├── Makefile                      # Dev shortcuts: install, test, lint, format, build, clean
-├── .github/workflows/ci.yml     # CI: test matrix (3.9–3.12), lint, publish to PyPI
+├── .github/workflows/
+│   ├── ci.yml                                          # Core SDK CI + publish
+│   ├── publish-langchain-ferrolabsai.yml               # Test + publish on `langchain-ferrolabsai-vX.Y.Z` tags
+│   └── publish-llama-index-llms-ferrolabsai.yml        # Test + publish on `llama-index-llms-ferrolabsai-vX.Y.Z` tags
 ├── README.md
 ├── CONTRIBUTING.md
 ├── CHANGELOG.md
@@ -52,6 +71,25 @@ ferrolabs-python-sdk/
 ├── SECURITY.md
 └── LICENSE
 ```
+
+### Sibling integration packages
+
+Framework adapter packages live under `integrations/` as independently versioned and independently published Python distributions. Each sub-folder has its own `pyproject.toml`, README, CHANGELOG, LICENSE, source tree, and pytest suite, and is built with Hatchling exactly like the parent SDK.
+
+| Package | Folder | Tag prefix | Publish workflow |
+|---|---|---|---|
+| `langchain-ferrolabsai` | `integrations/langchain-ferrolabsai/` | `langchain-ferrolabsai-vX.Y.Z` | `.github/workflows/publish-langchain-ferrolabsai.yml` |
+| `llama-index-llms-ferrolabsai` | `integrations/llama-index-llms-ferrolabsai/` | `llama-index-llms-ferrolabsai-vX.Y.Z` | `.github/workflows/publish-llama-index-llms-ferrolabsai.yml` |
+
+Conventions:
+
+- **Independent versioning.** Each sub-package's `pyproject.toml` version is bumped on its own cadence. Do not piggy-back on the parent SDK's `v*.*.*` tag.
+- **Tag prefix pattern.** Releases are cut by pushing tags like `langchain-ferrolabsai-v0.1.0`. The publish workflow asserts the tag matches the sub-package's `pyproject.toml` version before uploading.
+- **Trusted Publishing.** PyPI credentials use OIDC environments named `pypi-langchain-ferrolabsai` and `pypi-llama-index-llms-ferrolabsai` — provision these on PyPI before the first publish.
+- **Dependency on the core SDK.** Each sub-package declares `ferrolabsai>=X.Y.Z` as a runtime dependency.
+- **`llama_index` namespace package.** `llama-index-llms-ferrolabsai` uses the PEP 420 implicit namespace package layout (`llama_index/llms/ferrolabsai/`) so it can later be mirrored upstream into `run-llama/llama_index` with no code changes.
+- **Placeholder behaviour.** While a sub-package is at `0.0.x`, its `__init__.py` exposes only `__version__`; any attempt to import the planned public classes raises `NotImplementedError` with a roadmap link. Real classes land at `0.1.0`.
+- **Release flow.** `make build` and `make test` from the sub-folder; bump version in its `pyproject.toml` + `CHANGELOG.md`; commit + push tag with the prefix above; CI runs the full test matrix and publishes via Trusted Publishing.
 
 ---
 

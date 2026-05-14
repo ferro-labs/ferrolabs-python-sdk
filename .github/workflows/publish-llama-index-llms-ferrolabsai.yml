@@ -1,0 +1,106 @@
+name: Publish llama-index-llms-ferrolabsai
+
+on:
+  push:
+    tags:
+      - 'llama-index-llms-ferrolabsai-v[0-9]+.[0-9]+.[0-9]+'
+      - 'llama-index-llms-ferrolabsai-v[0-9]+.[0-9]+.[0-9]+-*'
+  pull_request:
+    branches: [main, development]
+    paths:
+      - 'integrations/llama-index-llms-ferrolabsai/**'
+      - '.github/workflows/publish-llama-index-llms-ferrolabsai.yml'
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    defaults:
+      run:
+        working-directory: integrations/llama-index-llms-ferrolabsai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check llama_index/
+
+      - name: Type check
+        run: mypy llama_index/ --ignore-missing-imports
+        if: matrix.python-version == '3.11'
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  publish:
+    name: Publish to PyPI
+    needs: test
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/llama-index-llms-ferrolabsai-v')
+    environment:
+      name: pypi-llama-index-llms-ferrolabsai
+      url: https://pypi.org/project/llama-index-llms-ferrolabsai/
+
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: false
+
+    permissions:
+      id-token: write   # OIDC trusted publishing to PyPI
+      contents: write   # softprops/action-gh-release needs this
+
+    defaults:
+      run:
+        working-directory: integrations/llama-index-llms-ferrolabsai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Assert tag matches pyproject.toml version
+        run: |
+          python <<'PY'
+          import os, sys, tomllib
+          with open("pyproject.toml", "rb") as f:
+              version = tomllib.load(f)["project"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected = f"llama-index-llms-ferrolabsai-v{version}"
+          if tag != expected:
+              print(f"::error::Tag {tag!r} does not match expected {expected!r}")
+              sys.exit(1)
+          print(f"Tag {tag} matches pyproject.toml {expected}")
+          PY
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Build
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: integrations/llama-index-llms-ferrolabsai/dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: integrations/llama-index-llms-ferrolabsai/dist/*
