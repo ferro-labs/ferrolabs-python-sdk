@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "langchain-ferrolabsai"
+version = "0.0.1"
+description = "LangChain integration for Ferro Labs AI Gateway — chat, streaming, embeddings, and tool calling across 30+ LLM providers via a single OpenAI-compatible endpoint"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.9"
+authors = [
+    { name = "Ferro Labs", email = "hello@ferrolabs.ai" },
+]
+keywords = [
+    "llm", "ai", "gateway", "openai", "anthropic", "llm-router",
+    "ai-gateway", "ferrolabs", "ferro", "ferrolabsai", "langchain",
+    "langchain-integration", "generative-ai",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "ferrolabsai>=0.1.0",
+    "langchain-core>=0.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-httpx>=0.22",
+    "mypy>=1.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage       = "https://ferrolabs.ai"
+Documentation  = "https://docs.ferrolabs.ai/frameworks/langchain-python"
+Repository     = "https://github.com/ferro-labs/ferrolabs-python-sdk"
+"Bug Tracker"  = "https://github.com/ferro-labs/ferrolabs-python-sdk/issues"
+Changelog      = "https://github.com/ferro-labs/ferrolabs-python-sdk/blob/main/integrations/langchain-ferrolabsai/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["langchain_ferrolabsai"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
