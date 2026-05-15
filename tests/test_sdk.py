@@ -757,6 +757,26 @@ class TestAsyncResources:
         assert keys[0].id == "key_1"
 
     @pytest.mark.asyncio
+    async def test_admin_keys_delete_accepts_204(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="DELETE",
+            url=f"{BASE_URL}/admin/keys/key_1",
+            status_code=204,
+            content=b"",
+        )
+        await async_client.admin.keys.delete("key_1")
+
+    @pytest.mark.asyncio
+    async def test_admin_keys_revoke_accepts_204(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/admin/keys/key_1/revoke",
+            status_code=204,
+            content=b"",
+        )
+        await async_client.admin.keys.revoke("key_1")
+
+    @pytest.mark.asyncio
     async def test_admin_config_history_is_awaitable(self, async_client, httpx_mock: HTTPXMock):
         httpx_mock.add_response(
             method="GET",

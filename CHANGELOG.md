@@ -26,6 +26,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   support is confirmed.
 
 ### Fixed
+- Integration package publish workflows now use valid GitHub tag glob
+  patterns, while keeping exact tag/version validation in the publish job.
+- Async requests now return `{}` for `204 No Content` and other empty-body
+  responses, matching sync client behavior.
 - Async custom HTTP clients merge SDK auth/default headers, matching sync
   client behavior.
 - Request IDs propagate from error response headers or `trace_id` response

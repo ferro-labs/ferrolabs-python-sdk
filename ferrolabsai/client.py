@@ -304,6 +304,8 @@ class AsyncFerroClient:
             try:
                 response = await self._http.request(method, path, json=json, params=params)
                 response.raise_for_status()
+                if response.status_code == 204 or not response.content:
+                    return {}
                 return cast("dict[str, Any]", response.json())
             except httpx.HTTPStatusError as e:
                 _raise_api_error(e)
