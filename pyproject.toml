@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ferrolabsai"
-version = "0.1.0"
+version = "0.2.0"
 description = "Official Python SDK for Ferro Labs AI Gateway — route LLM requests across 29 providers with a single OpenAI-compatible API"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -51,6 +51,7 @@ Changelog      = "https://github.com/ferro-labs/ferrolabs-python-sdk/blob/main/C
 
 [tool.hatch.build.targets.wheel]
 packages = ["ferrolabsai"]
+force-include = { "ferrolabsai/py.typed" = "ferrolabsai/py.typed" }
 
 [tool.ruff]
 line-length = 100

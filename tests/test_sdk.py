@@ -228,6 +228,16 @@ EMBEDDING_RESPONSE = {
     "usage": {"prompt_tokens": 8, "total_tokens": 8},
 }
 
+IMAGE_RESPONSE = {
+    "created": 1700000000,
+    "data": [
+        {
+            "url": "https://example.com/image.png",
+            "revised_prompt": "A polished image prompt",
+        }
+    ],
+}
+
 
 class TestEmbeddings:
     def test_create(self, client, httpx_mock: HTTPXMock):
@@ -677,6 +687,180 @@ class TestAsyncClientNamespaces:
         assert hasattr(client, "images")
         assert hasattr(client, "models")
         assert hasattr(client, "admin")
+
+
+class TestAsyncResources:
+    @pytest.mark.asyncio
+    async def test_models_list_is_awaitable(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/v1/models",
+            json=MODELS_RESPONSE,
+        )
+        models = await async_client.models.list()
+        assert len(models) == 2
+        assert models[0].id == "gpt-4o"
+
+    @pytest.mark.asyncio
+    async def test_models_search_is_awaitable(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/v1/models?search=claude",
+            json={"data": [MODELS_RESPONSE["data"][1]]},
+        )
+        models = await async_client.models.search("claude")
+        assert len(models) == 1
+        assert models[0].provider == "anthropic"
+
+    @pytest.mark.asyncio
+    async def test_images_generate_is_awaitable(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/images/generations",
+            json=IMAGE_RESPONSE,
+        )
+        image = await async_client.images.generate(
+            model="dall-e-3",
+            prompt="A gateway",
+            size="1024x1024",
+        )
+        assert image.data[0].url == "https://example.com/image.png"
+        body = json.loads(httpx_mock.get_requests()[0].content)
+        assert body["size"] == "1024x1024"
+
+    @pytest.mark.asyncio
+    async def test_admin_health_is_awaitable(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/health",
+            json={"status": "ok"},
+        )
+        health = await async_client.admin.health()
+        assert health["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_admin_keys_list_is_awaitable(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/keys",
+            json=[
+                {
+                    "id": "key_1",
+                    "name": "prod",
+                    "scopes": ["admin"],
+                    "active": True,
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
+        keys = await async_client.admin.keys.list()
+        assert keys[0].id == "key_1"
+
+    @pytest.mark.asyncio
+    async def test_admin_keys_delete_accepts_204(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="DELETE",
+            url=f"{BASE_URL}/admin/keys/key_1",
+            status_code=204,
+            content=b"",
+        )
+        await async_client.admin.keys.delete("key_1")
+
+    @pytest.mark.asyncio
+    async def test_admin_keys_revoke_accepts_204(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/admin/keys/key_1/revoke",
+            status_code=204,
+            content=b"",
+        )
+        await async_client.admin.keys.revoke("key_1")
+
+    @pytest.mark.asyncio
+    async def test_admin_config_history_is_awaitable(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/config/history",
+            json={
+                "data": [
+                    {
+                        "version": 1,
+                        "updated_at": "2026-04-01T00:00:00Z",
+                        "config": {"strategy": {"mode": "single"}, "targets": []},
+                    }
+                ]
+            },
+        )
+        history = await async_client.admin.config.history()
+        assert history[0].version == 1
+
+    @pytest.mark.asyncio
+    async def test_admin_providers_list_is_awaitable(self, async_client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/providers",
+            json={"data": [{"name": "openai"}]},
+        )
+        providers = await async_client.admin.providers.list()
+        assert providers == [{"name": "openai"}]
+
+
+class TestRetryBackoff:
+    def test_sync_retries_use_backoff(self, monkeypatch, client, httpx_mock: HTTPXMock):
+        sleeps: list[float] = []
+        monkeypatch.setattr("ferrolabsai.client.time.sleep", sleeps.append)
+        client.max_retries = 1
+        httpx_mock.add_exception(
+            httpx.ConnectError("connection refused"),
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+        )
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            json=COMPLETION_RESPONSE,
+        )
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        assert response.id == "chatcmpl-abc123"
+        assert sleeps == [0.5]
+
+    @pytest.mark.asyncio
+    async def test_async_retries_use_backoff(
+        self,
+        monkeypatch,
+        async_client,
+        httpx_mock: HTTPXMock,
+    ):
+        sleeps: list[float] = []
+
+        async def fake_sleep(delay: float) -> None:
+            sleeps.append(delay)
+
+        monkeypatch.setattr("ferrolabsai.client.asyncio.sleep", fake_sleep)
+        async_client.max_retries = 1
+        httpx_mock.add_exception(
+            httpx.ConnectError("connection refused"),
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+        )
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            json=COMPLETION_RESPONSE,
+        )
+
+        response = await async_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        assert response.id == "chatcmpl-abc123"
+        assert sleeps == [0.5]
 
 
 # ------------------------------------------------------------------

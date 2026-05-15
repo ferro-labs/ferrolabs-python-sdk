@@ -271,11 +271,11 @@ print(f"Input:  ${info.input_cost_per_token * 1_000_000:.2f}/M tokens")
 print(f"Output: ${info.output_cost_per_token * 1_000_000:.2f}/M tokens")
 ```
 
-### Ferro extras: templates & route tags
+### Forwarded Ferro fields: templates & route tags
 
 The SDK passes two Ferro-specific fields on `chat.completions.create(...)`:
 
-**`template_id` + `template_variables`** — render a server-side prompt template at request time. Templates are defined in your gateway config and use Go `text/template` syntax (`{{.variable_name}}`):
+**`template_id` + `template_variables`** — forwarded in the chat completion body for gateway deployments that support server-side prompt templates:
 
 ```python
 response = client.chat.completions.create(
@@ -290,7 +290,7 @@ response = client.chat.completions.create(
 )
 ```
 
-**`route_tag`** — override the routing strategy for a single request. Maps to a conditional rule in your gateway config:
+**`route_tag`** — forwarded as `x_route_tag` in the chat completion body for gateway deployments that support per-request route tags:
 
 ```python
 response = client.chat.completions.create(
@@ -300,7 +300,7 @@ response = client.chat.completions.create(
 )
 ```
 
-Both fields are silently ignored by any OpenAI-compatible backend that doesn't understand them, so it's safe to keep them in shared code paths.
+These fields are pass-through SDK fields. Confirm your gateway version supports them before relying on them for routing or template rendering.
 
 ---
 
