@@ -95,7 +95,7 @@ class ChatCompletion:
             usage=Usage.from_dict(d["usage"]) if d.get("usage") else None,
             trace_id=d.get("x_ferro_trace_id") or d.get("trace_id"),
             provider=d.get("x_ferro_provider") or d.get("provider"),
-            latency_ms=d.get("x_ferro_latency_ms"),
+            latency_ms=d.get("x_ferro_latency_ms") or d.get("latency_ms"),
         )
 
     @property

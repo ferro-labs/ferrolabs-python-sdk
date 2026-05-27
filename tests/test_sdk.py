@@ -140,6 +140,31 @@ class TestChatCompletions:
         assert response.content == "Hello from Ferro!"
         assert response.usage.cost_usd == 0.000075
 
+    def test_success_metadata_can_come_from_headers(self, client, httpx_mock: HTTPXMock):
+        body = dict(COMPLETION_RESPONSE)
+        body["usage"] = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            json=body,
+            headers={
+                "X-Request-ID": "trace-from-header",
+                "x-ferro-provider": "openai",
+                "x-ferro-latency-ms": "42",
+                "x-ferro-cost-usd": "0.000075",
+            },
+        )
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+        assert response.trace_id == "trace-from-header"
+        assert response.provider == "openai"
+        assert response.latency_ms == 42
+        assert response.usage is not None
+        assert response.usage.cost_usd == 0.000075
+        assert response.usage.provider == "openai"
+
     def test_sends_correct_headers(self, client, httpx_mock: HTTPXMock):
         httpx_mock.add_response(
             method="POST",
@@ -649,6 +674,33 @@ class TestAsyncCompletionsParams:
         )
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["x_route_tag"] == "fast"
+
+    @pytest.mark.asyncio
+    async def test_success_metadata_can_come_from_headers(
+        self, async_client, httpx_mock: HTTPXMock
+    ):
+        body = dict(COMPLETION_RESPONSE)
+        body["usage"] = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            json=body,
+            headers={
+                "X-Request-ID": "async-trace-from-header",
+                "x-ferro-provider": "anthropic",
+                "x-ferro-latency-ms": "123",
+                "x-ferro-cost-usd": "0.001",
+            },
+        )
+        response = await async_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+        assert response.trace_id == "async-trace-from-header"
+        assert response.provider == "anthropic"
+        assert response.latency_ms == 123
+        assert response.usage is not None
+        assert response.usage.cost_usd == 0.001
 
 
 # ------------------------------------------------------------------

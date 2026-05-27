@@ -167,7 +167,7 @@ class FerroClient:
                     return response
                 if response.status_code == 204 or not response.content:
                     return {}
-                return cast("dict[str, Any]", response.json())
+                return _with_response_metadata(cast("dict[str, Any]", response.json()), response)
             except httpx.HTTPStatusError as e:
                 _raise_api_error(e)
             except httpx.ConnectError as e:
@@ -306,7 +306,7 @@ class AsyncFerroClient:
                 response.raise_for_status()
                 if response.status_code == 204 or not response.content:
                     return {}
-                return cast("dict[str, Any]", response.json())
+                return _with_response_metadata(cast("dict[str, Any]", response.json()), response)
             except httpx.HTTPStatusError as e:
                 _raise_api_error(e)
             except httpx.ConnectError as e:
@@ -343,6 +343,62 @@ class _AsyncChatNamespace:
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+
+def _with_response_metadata(data: dict[str, Any], response: httpx.Response) -> dict[str, Any]:
+    """Copy gateway metadata headers into parsed response bodies.
+
+    Successful SDK calls return dataclasses, so header-only metadata such as
+    X-Request-ID must be preserved before resource classes construct them.
+    Body fields stay authoritative when both sources are present.
+    """
+    trace_id = (
+        response.headers.get("x-request-id")
+        or response.headers.get("x-trace-id")
+        or response.headers.get("x-ferro-request-id")
+    )
+    if trace_id and "trace_id" not in data and "x_ferro_trace_id" not in data:
+        data["trace_id"] = trace_id
+
+    provider = response.headers.get("x-ferro-provider")
+    if provider and "provider" not in data and "x_ferro_provider" not in data:
+        data["provider"] = provider
+        usage = data.get("usage")
+        if isinstance(usage, dict) and "provider" not in usage:
+            usage["provider"] = provider
+
+    latency_ms = _header_int(response.headers.get("x-ferro-latency-ms"))
+    if latency_ms is not None and "latency_ms" not in data and "x_ferro_latency_ms" not in data:
+        data["x_ferro_latency_ms"] = latency_ms
+
+    cost_usd = _header_float(response.headers.get("x-ferro-cost-usd"))
+    if cost_usd is not None:
+        usage = data.get("usage")
+        if not isinstance(usage, dict):
+            usage = {}
+            data["usage"] = usage
+        if "cost_usd" not in usage:
+            usage["cost_usd"] = cost_usd
+
+    return data
+
+
+def _header_int(value: str | None) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(float(value))
+    except ValueError:
+        return None
+
+
+def _header_float(value: str | None) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 def _raise_api_error(e: httpx.HTTPStatusError) -> None:

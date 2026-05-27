@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langchain-ferrolabsai"
-version = "0.0.1"
+version = "0.1.0"
 description = "LangChain integration for Ferro Labs AI Gateway — chat, streaming, embeddings, and tool calling across 30+ LLM providers via a single OpenAI-compatible endpoint"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -18,7 +18,7 @@ keywords = [
     "langchain-integration", "generative-ai",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
