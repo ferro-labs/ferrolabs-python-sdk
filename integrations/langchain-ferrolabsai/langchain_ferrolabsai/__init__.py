@@ -1,31 +1,30 @@
 """LangChain integration for Ferro Labs AI Gateway.
 
-This is a 0.0.1 placeholder release. The full adapter (FerroChatModel,
-FerroEmbeddings, FerroLLM) is under active development. Track progress at:
-
-    https://github.com/ferro-labs/ai-gateway-workspace/blob/main/docs/OSS-ECOSYSTEM-ROADMAP.md
-
-Once shipped, the public API will be:
+Public API::
 
     from langchain_ferrolabsai import FerroChatModel, FerroEmbeddings, FerroLLM
+
+    chat = FerroChatModel(model="gpt-4o", api_key="sk-ferro-...")
+    embed = FerroEmbeddings(model="text-embedding-3-small", api_key="sk-ferro-...")
+    legacy = FerroLLM(model="gpt-4o", api_key="sk-ferro-...")
+
+All three classes route through a Ferro Labs AI Gateway endpoint and expose
+the gateway's ``trace_id`` (frozen contract since ``ai-gateway v1.1.0``) via
+``response_metadata`` — the join key for the v1.2 observability bridge plugins
+(LangSmith, Langfuse, Phoenix, …).
 """
 
 from __future__ import annotations
 
-__version__ = "0.0.1"
+from .chat_models import FerroChatModel
+from .embeddings import FerroEmbeddings
+from .llms import FerroLLM
 
-__all__ = ["__version__"]
+__version__ = "0.1.0"
 
-
-def _not_implemented(name: str) -> None:
-    raise NotImplementedError(
-        f"langchain_ferrolabsai.{name} is not implemented in 0.0.1. "
-        "This release reserves the package name. "
-        "Track progress at https://github.com/ferro-labs/ai-gateway-workspace."
-    )
-
-
-def __getattr__(name: str) -> object:
-    if name in {"FerroChatModel", "FerroEmbeddings", "FerroLLM"}:
-        _not_implemented(name)
-    raise AttributeError(f"module 'langchain_ferrolabsai' has no attribute {name!r}")
+__all__ = [
+    "__version__",
+    "FerroChatModel",
+    "FerroEmbeddings",
+    "FerroLLM",
+]
