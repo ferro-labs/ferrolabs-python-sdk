@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ferrolabsai import ChatCompletion, FerroClient
 from langchain_core.callbacks import CallbackManagerForLLMRun
@@ -28,6 +28,9 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import ConfigDict, Field, PrivateAttr, SecretStr
 
 from ._messages import messages_to_ferro_dicts
+
+if TYPE_CHECKING:
+    from langchain_core.messages import ToolCallChunk
 
 
 class FerroChatModel(BaseChatModel):
@@ -207,13 +210,13 @@ class FerroChatModel(BaseChatModel):
         *,
         tool_choice: Any | None = None,
         **kwargs: Any,
-    ) -> Runnable[LanguageModelInput, BaseMessage]:
+    ) -> Runnable[LanguageModelInput, AIMessage]:
         formatted = [convert_to_openai_tool(t) for t in tools]
         bind_kwargs: dict[str, Any] = {"tools": formatted}
         if tool_choice is not None:
             bind_kwargs["tool_choice"] = tool_choice
         bind_kwargs.update(kwargs)
-        return super().bind(**bind_kwargs)
+        return cast("Runnable[LanguageModelInput, AIMessage]", super().bind(**bind_kwargs))
 
 
 # ---------------------------------------------------------------------------
@@ -279,11 +282,11 @@ def _usage_metadata(response: ChatCompletion) -> dict[str, int] | None:
     }
 
 
-def _extract_tool_call_chunks(raw: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+def _extract_tool_call_chunks(raw: list[dict[str, Any]] | None) -> list[ToolCallChunk]:
     """Map OpenAI streaming tool-call deltas to LangChain chunk shape."""
     if not raw:
         return []
-    result: list[dict[str, Any]] = []
+    result: list[ToolCallChunk] = []
     for call in raw:
         function = call.get("function", {}) or {}
         chunk: dict[str, Any] = {"type": "tool_call_chunk"}
@@ -295,7 +298,7 @@ def _extract_tool_call_chunks(raw: list[dict[str, Any]] | None) -> list[dict[str
             chunk["name"] = function.get("name")
         if function.get("arguments") is not None:
             chunk["args"] = function.get("arguments")
-        result.append(chunk)
+        result.append(cast("ToolCallChunk", chunk))
     return result
 
 
