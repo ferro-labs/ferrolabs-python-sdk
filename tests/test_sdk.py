@@ -522,6 +522,28 @@ class TestAdminLogs:
         assert stats["total"] == 42
 
 
+class TestAdminPlugins:
+    def test_list_plugins_bare_array(self, client, httpx_mock: HTTPXMock):
+        payload = [{"name": "logger", "enabled": True}]
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/plugins",
+            json=payload,
+        )
+        plugins = client.admin.plugins.list()
+        assert plugins == payload
+
+    def test_list_plugins_data_wrapper(self, client, httpx_mock: HTTPXMock):
+        payload = [{"name": "cache", "enabled": False}]
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/plugins",
+            json={"data": payload},
+        )
+        plugins = client.admin.plugins.list()
+        assert plugins == payload
+
+
 # ------------------------------------------------------------------
 # Error handling
 # ------------------------------------------------------------------

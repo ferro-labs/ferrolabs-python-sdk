@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### Added
+- Test coverage for `admin.plugins.list()` response shapes.
+
 ## [0.2.0] — 2026-05-14
 
 ### Added
