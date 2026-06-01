@@ -1,0 +1,50 @@
+# .github/workflows/ci.yml
+# 修改后的 CI 配置文件，移除了 mypy 步骤中的 Python 版本限制
+# 现在 mypy 将在所有 Python 版本（3.9-3.12）上运行
+
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+      fail-fast: false  # 允许所有版本运行完成，即使某个版本失败
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install mypy  # 确保 mypy 已安装
+
+    - name: Run tests
+      run: |
+        pytest tests/ --verbose
+
+    # 移除了 if: matrix.python-version == '3.11' 条件
+    # mypy 现在将在所有 Python 版本上运行
+    - name: Run mypy
+      run: |
+        mypy ferrolabsai/ --ignore-missing-imports
+
+    # 可选：添加代码风格检查（在所有版本上运行）
+    - name: Run flake8
+      run: |
+        pip install flake8
+        flake8 ferrolabsai/ --max-line-length=100
+      continue-on-error: true  # 风格检查失败不影响 CI 结果
