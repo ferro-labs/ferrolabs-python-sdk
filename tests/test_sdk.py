@@ -333,6 +333,24 @@ class TestModels:
 # ------------------------------------------------------------------
 
 
+class TestAdminDashboard:
+    def test_dashboard_returns_response(self, client, httpx_mock: HTTPXMock):
+        response = {
+            "providers": {"total": 3, "healthy": 2},
+            "keys": {"total": 4, "active": 3},
+            "requests": {"total": 120, "errors": 5},
+        }
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/dashboard",
+            json=response,
+        )
+
+        dashboard = client.admin.dashboard()
+
+        assert dashboard == response
+
+
 class TestAdminKeys:
     def test_create_key(self, client, httpx_mock: HTTPXMock):
         httpx_mock.add_response(
