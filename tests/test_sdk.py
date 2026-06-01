@@ -497,6 +497,23 @@ class TestAdminConfig:
         assert result["rolled_back_to"] == 1
 
 
+class TestAdminDashboard:
+    def test_get_dashboard(self, client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/dashboard",
+            json={
+                "providers": {"enabled": 3, "disabled": 1},
+                "keys": {"active": 5, "revoked": 2},
+                "requests": {"total": 128, "errors": 4},
+            },
+        )
+        dashboard = client.admin.dashboard()
+        assert dashboard["providers"]["enabled"] == 3
+        assert dashboard["keys"]["active"] == 5
+        assert dashboard["requests"]["total"] == 128
+
+
 class TestAdminLogs:
     def test_list_logs(self, client, httpx_mock: HTTPXMock):
         httpx_mock.add_response(
