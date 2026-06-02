@@ -522,6 +522,31 @@ class TestAdminLogs:
         assert stats["total"] == 42
 
 
+class TestAdminPlugins:
+    def test_list_plugins_accepts_bare_array(self, client, httpx_mock: HTTPXMock):
+        plugins = [
+            {"name": "cache", "enabled": True},
+            {"name": "logger", "enabled": False},
+        ]
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/plugins",
+            json=plugins,
+        )
+
+        assert client.admin.plugins.list() == plugins
+
+    def test_list_plugins_accepts_data_wrapper(self, client, httpx_mock: HTTPXMock):
+        plugins = [{"name": "ratelimit", "enabled": True}]
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/plugins",
+            json={"data": plugins},
+        )
+
+        assert client.admin.plugins.list() == plugins
+
+
 # ------------------------------------------------------------------
 # Error handling
 # ------------------------------------------------------------------
