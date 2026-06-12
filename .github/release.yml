@@ -1,0 +1,50 @@
+# Configuration for GitHub's automatically generated release notes.
+#
+# When a release is drafted, every merged PR since the last tag is listed as
+# "* <PR title> by @<author> in #<PR>", so each contributor is credited with
+# their GitHub handle automatically, and a "New Contributors" section tags
+# first-time contributors. PRs are grouped into the categories below by label.
+#
+# Docs: https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      - dependabot
+      - github-actions
+  categories:
+    - title: 🚨 Breaking Changes
+      labels:
+        - breaking-change
+    - title: ✨ Features
+      labels:
+        - enhancement
+    - title: 🐛 Bug Fixes
+      labels:
+        - bug
+    - title: ⚡ Reliability & Performance
+      labels:
+        - reliability
+        - performance
+    - title: 🧪 Tests
+      labels:
+        - testing
+    - title: 🏷️ Typing
+      labels:
+        - typing
+    - title: 🌊 Streaming & Observability
+      labels:
+        - streaming
+        - observability
+        - error-handling
+    - title: 📝 Documentation
+      labels:
+        - documentation
+    - title: 🔧 CI & Tooling
+      labels:
+        - ci
+        - chore
+    - title: 🔁 Other Changes
+      labels:
+        - "*"
