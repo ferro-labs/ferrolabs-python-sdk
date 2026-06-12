@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from ..exceptions import FerroStreamError
 from ..types import ChatCompletion, ChatCompletionChunk
 
 
@@ -85,6 +86,9 @@ class AsyncCompletions:
                     if payload == "[DONE]":
                         return
                     try:
-                        yield ChatCompletionChunk.from_dict(json.loads(payload))
-                    except json.JSONDecodeError:
-                        continue
+                        chunk_data = json.loads(payload)
+                    except json.JSONDecodeError as e:
+                        raise FerroStreamError(
+                            f"Malformed SSE chunk in streaming response: {payload[:200]!r}"
+                        ) from e
+                    yield ChatCompletionChunk.from_dict(chunk_data)

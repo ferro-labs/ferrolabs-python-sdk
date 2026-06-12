@@ -7,6 +7,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- Streaming completions now raise `FerroStreamError` on malformed SSE chunks
+  instead of silently dropping them, for both the sync and async clients. This
+  is the first code path that actually raises the previously-unused
+  `FerroStreamError`.
+
+### Added
+- Test coverage for `admin.dashboard()` and `admin.plugins.list()` (bare-array,
+  `{"data": [...]}`, and `{"plugins": [...]}` response shapes).
+- Streaming malformed-chunk regression tests for the sync and async clients.
+
 ## [0.2.0] — 2026-05-14
 
 ### Added

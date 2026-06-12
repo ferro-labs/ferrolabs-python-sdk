@@ -20,6 +20,7 @@ from ferrolabsai.exceptions import (
     FerroNotFoundError,
     FerroRateLimitError,
     FerroServerError,
+    FerroStreamError,
 )
 
 BASE_URL = "http://localhost:8080"
@@ -497,6 +498,23 @@ class TestAdminConfig:
         assert result["rolled_back_to"] == 1
 
 
+class TestAdminDashboard:
+    def test_get_dashboard(self, client, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/dashboard",
+            json={
+                "providers": {"enabled": 3, "disabled": 1},
+                "keys": {"active": 5, "revoked": 2},
+                "requests": {"total": 128, "errors": 4},
+            },
+        )
+        dashboard = client.admin.dashboard()
+        assert dashboard["providers"]["enabled"] == 3
+        assert dashboard["keys"]["active"] == 5
+        assert dashboard["requests"]["total"] == 128
+
+
 class TestAdminLogs:
     def test_list_logs(self, client, httpx_mock: HTTPXMock):
         httpx_mock.add_response(
@@ -520,6 +538,41 @@ class TestAdminLogs:
         )
         stats = client.admin.logs.stats()
         assert stats["total"] == 42
+
+
+class TestAdminPlugins:
+    def test_list_plugins_accepts_bare_array(self, client, httpx_mock: HTTPXMock):
+        plugins = [
+            {"name": "cache", "enabled": True},
+            {"name": "logger", "enabled": False},
+        ]
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/plugins",
+            json=plugins,
+        )
+
+        assert client.admin.plugins.list() == plugins
+
+    def test_list_plugins_accepts_data_wrapper(self, client, httpx_mock: HTTPXMock):
+        plugins = [{"name": "ratelimit", "enabled": True}]
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/plugins",
+            json={"data": plugins},
+        )
+
+        assert client.admin.plugins.list() == plugins
+
+    def test_list_plugins_accepts_plugins_wrapper(self, client, httpx_mock: HTTPXMock):
+        plugins = [{"name": "logger", "enabled": True}]
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/plugins",
+            json={"plugins": plugins},
+        )
+
+        assert client.admin.plugins.list() == plugins
 
 
 # ------------------------------------------------------------------
@@ -635,6 +688,40 @@ class TestStreamingErrorHandling:
                     stream=True,
                 )
             )
+
+    def test_sync_stream_malformed_chunk_raises_stream_error(self, client, httpx_mock: HTTPXMock):
+        sse_data = "data: {not valid json}\n\n"
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            content=sse_data.encode(),
+        )
+        with pytest.raises(FerroStreamError, match="Malformed SSE chunk"):
+            list(
+                client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": "Hi"}],
+                    stream=True,
+                )
+            )
+
+    @pytest.mark.asyncio
+    async def test_async_stream_malformed_chunk_raises_stream_error(
+        self, async_client, httpx_mock: HTTPXMock
+    ):
+        sse_data = "data: {not valid json}\n\n"
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            content=sse_data.encode(),
+        )
+        with pytest.raises(FerroStreamError, match="Malformed SSE chunk"):
+            async for _ in await async_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": "Hi"}],
+                stream=True,
+            ):
+                pass
 
 
 # ------------------------------------------------------------------

@@ -6,6 +6,7 @@ import json
 from collections.abc import Iterator
 from typing import Any, Literal, overload
 
+from ..exceptions import FerroStreamError
 from ..types import ChatCompletion, ChatCompletionChunk
 
 
@@ -137,6 +138,8 @@ class Completions:
                     return
                 try:
                     chunk_data = json.loads(payload)
-                    yield ChatCompletionChunk.from_dict(chunk_data)
-                except json.JSONDecodeError:
-                    continue
+                except json.JSONDecodeError as e:
+                    raise FerroStreamError(
+                        f"Malformed SSE chunk in streaming response: {payload[:200]!r}"
+                    ) from e
+                yield ChatCompletionChunk.from_dict(chunk_data)
