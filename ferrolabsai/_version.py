@@ -7,4 +7,4 @@ try:
 
     __version__ = version("ferrolabsai")
 except Exception:
-    __version__ = "0.2.0"
+    __version__ = "0.2.1"
