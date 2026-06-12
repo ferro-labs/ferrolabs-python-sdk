@@ -20,6 +20,7 @@ from ferrolabsai.exceptions import (
     FerroNotFoundError,
     FerroRateLimitError,
     FerroServerError,
+    FerroStreamError,
 )
 
 BASE_URL = "http://localhost:8080"
@@ -563,6 +564,16 @@ class TestAdminPlugins:
 
         assert client.admin.plugins.list() == plugins
 
+    def test_list_plugins_accepts_plugins_wrapper(self, client, httpx_mock: HTTPXMock):
+        plugins = [{"name": "logger", "enabled": True}]
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{BASE_URL}/admin/plugins",
+            json={"plugins": plugins},
+        )
+
+        assert client.admin.plugins.list() == plugins
+
 
 # ------------------------------------------------------------------
 # Error handling
@@ -677,6 +688,40 @@ class TestStreamingErrorHandling:
                     stream=True,
                 )
             )
+
+    def test_sync_stream_malformed_chunk_raises_stream_error(self, client, httpx_mock: HTTPXMock):
+        sse_data = "data: {not valid json}\n\n"
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            content=sse_data.encode(),
+        )
+        with pytest.raises(FerroStreamError, match="Malformed SSE chunk"):
+            list(
+                client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": "Hi"}],
+                    stream=True,
+                )
+            )
+
+    @pytest.mark.asyncio
+    async def test_async_stream_malformed_chunk_raises_stream_error(
+        self, async_client, httpx_mock: HTTPXMock
+    ):
+        sse_data = "data: {not valid json}\n\n"
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/chat/completions",
+            content=sse_data.encode(),
+        )
+        with pytest.raises(FerroStreamError, match="Malformed SSE chunk"):
+            async for _ in await async_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": "Hi"}],
+                stream=True,
+            ):
+                pass
 
 
 # ------------------------------------------------------------------
