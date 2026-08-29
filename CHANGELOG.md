@@ -56,7 +56,8 @@ keeps it that way. Compatibility: `ferrolabsai 0.3.x` ↔ `ai-gateway ≥ v1.4.0
   retried** (0.2.x retried every timeout regardless of method) — it may
   already have been processed. Full-jitter backoff, `Retry-After` honoured
   (capped at 30 s).
-  `max_retries=0` disables retries. Streaming is never retried.
+  `max_retries=0` disables retries. Streaming is never retried, and its
+  transport failures now raise `FerroConnectionError` like `_request` does.
 - `FerroRateLimitError.__init__` gained keyword-only `retry_after`;
   `FerroStreamError.__init__` gained keyword-only `code`.
 - `_request(stream=True)` (private) is removed; `_open_stream()` replaces it.

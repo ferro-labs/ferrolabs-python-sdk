@@ -270,7 +270,10 @@ class FerroClient:
         request = self._http.build_request(
             "POST", path, json=json, headers={"Accept": "text/event-stream"}
         )
-        response = self._http.send(request, stream=True)
+        try:
+            response = self._http.send(request, stream=True)
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            raise _connection_error(e, self.base_url, self.timeout) from e
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -415,7 +418,10 @@ class AsyncFerroClient:
         request = self._http.build_request(
             "POST", path, json=json, headers={"Accept": "text/event-stream"}
         )
-        response = await self._http.send(request, stream=True)
+        try:
+            response = await self._http.send(request, stream=True)
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            raise _connection_error(e, self.base_url, self.timeout) from e
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:

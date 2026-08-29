@@ -143,7 +143,7 @@ Shared by sync and async; streaming requests are never retried.
 | HTTP `408`, `5xx` | idempotent methods only (`GET`, `HEAD`, `PUT`, `DELETE`, `OPTIONS`) |
 | other `httpx.TimeoutException` (read / write / pool) | idempotent methods only — a `POST` may already have been processed |
 | any other `4xx` | no — raised immediately |
-| streaming (`_open_stream`) | never |
+| streaming (`_open_stream`) | never; transport errors map to `FerroConnectionError` |
 
 The decision lives in `_should_retry(method, status=…)` / `_should_retry(method, exc=…)`, shared by both loops.
 

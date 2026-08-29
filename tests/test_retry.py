@@ -1,5 +1,5 @@
 """Retry policy: status/exception retries are idempotent-only except 429 and connect
-failures."""
+failures; streaming maps transport errors but never retries."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from ferrolabsai.client import _should_retry
-from ferrolabsai.exceptions import FerroConnectionError, FerroServerError
+from ferrolabsai.exceptions import FerroConnectionError, FerroRateLimitError, FerroServerError
 
 from .conftest import BASE_URL, COMPLETION_RESPONSE
 
@@ -151,4 +151,35 @@ class TestRequestRetryPolicy:
         httpx_mock.add_exception(httpx.ReadTimeout("slow"), method="POST", url=CHAT_URL)
         with pytest.raises(FerroConnectionError, match="timed out"):
             await async_client.chat.completions.create(model="gpt-4o", messages=MESSAGES)
+        assert len(httpx_mock.get_requests()) == 1
+
+
+class TestStreamTransportErrors:
+    """``_open_stream`` maps transport failures like ``_request`` does, and never retries."""
+
+    @pytest.mark.parametrize(
+        ("exc", "match"),
+        [(httpx.ConnectError("refused"), "Cannot reach"), (httpx.ReadTimeout("slow"), "timed out")],
+    )
+    def test_sync_stream_maps_transport_errors(self, client, httpx_mock: HTTPXMock, exc, match):
+        client.max_retries = 2
+        httpx_mock.add_exception(exc, method="POST", url=CHAT_URL)
+        with pytest.raises(FerroConnectionError, match=match):
+            client.chat.completions.create(model="gpt-4o", messages=MESSAGES, stream=True)
+        assert len(httpx_mock.get_requests()) == 1
+
+    async def test_async_stream_maps_transport_errors(self, async_client, httpx_mock: HTTPXMock):
+        async_client.max_retries = 2
+        httpx_mock.add_exception(httpx.ConnectError("refused"), method="POST", url=CHAT_URL)
+        with pytest.raises(FerroConnectionError, match="Cannot reach"):
+            await async_client.chat.completions.create(
+                model="gpt-4o", messages=MESSAGES, stream=True
+            )
+        assert len(httpx_mock.get_requests()) == 1
+
+    def test_stream_429_is_not_retried(self, client, httpx_mock: HTTPXMock):
+        client.max_retries = 2
+        httpx_mock.add_response(method="POST", url=CHAT_URL, status_code=429, json=ERROR_BODY)
+        with pytest.raises(FerroRateLimitError):
+            client.chat.completions.create(model="gpt-4o", messages=MESSAGES, stream=True)
         assert len(httpx_mock.get_requests()) == 1
