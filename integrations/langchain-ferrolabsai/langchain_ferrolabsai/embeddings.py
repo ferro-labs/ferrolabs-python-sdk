@@ -9,9 +9,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from ferrolabsai import FerroClient
+from ferrolabsai import AsyncFerroClient, EmbeddingResponse, FerroClient
 from langchain_core.embeddings import Embeddings
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
+
+
+def _ordered_vectors(response: EmbeddingResponse) -> list[list[float]]:
+    # Preserve input order by sorting on `index` — the provider may return
+    # data out of order.
+    return [d.embedding for d in sorted(response.data, key=lambda d: d.index)]
 
 
 class FerroEmbeddings(BaseModel, Embeddings):
@@ -21,7 +27,7 @@ class FerroEmbeddings(BaseModel, Embeddings):
 
         from langchain_ferrolabsai import FerroEmbeddings
 
-        embed = FerroEmbeddings(model="text-embedding-3-small", api_key="sk-ferro-...")
+        embed = FerroEmbeddings(model="text-embedding-3-small", api_key="fgw_...")
         vectors = embed.embed_documents(["hello", "world"])
         query_vec = embed.embed_query("hello")
     """
@@ -39,17 +45,26 @@ class FerroEmbeddings(BaseModel, Embeddings):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     _client_instance: FerroClient | None = PrivateAttr(default=None)
+    _async_client_instance: AsyncFerroClient | None = PrivateAttr(default=None)
+
+    def _client_kwargs(self) -> dict[str, Any]:
+        return {
+            "api_key": self.api_key.get_secret_value() if self.api_key else None,
+            "base_url": self.base_url,
+            "timeout": self.timeout,
+            "max_retries": self.max_retries,
+            "default_headers": self.default_headers,
+        }
 
     def _get_client(self) -> FerroClient:
         if self._client_instance is None:
-            self._client_instance = FerroClient(
-                api_key=self.api_key.get_secret_value() if self.api_key else None,
-                base_url=self.base_url,
-                timeout=self.timeout,
-                max_retries=self.max_retries,
-                default_headers=self.default_headers,
-            )
+            self._client_instance = FerroClient(**self._client_kwargs())
         return self._client_instance
+
+    def _get_async_client(self) -> AsyncFerroClient:
+        if self._async_client_instance is None:
+            self._async_client_instance = AsyncFerroClient(**self._client_kwargs())
+        return self._async_client_instance
 
     def _build_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {"model": self.model}
@@ -65,13 +80,20 @@ class FerroEmbeddings(BaseModel, Embeddings):
         if not texts:
             return []
         response = self._get_client().embeddings.create(input=texts, **self._build_kwargs())
-        # Preserve input order by sorting on `index` — the gateway / provider
-        # may return data out of order.
-        ordered = sorted(response.data, key=lambda d: d.index)
-        return [d.embedding for d in ordered]
+        return _ordered_vectors(response)
 
     def embed_query(self, text: str) -> list[float]:
         response = self._get_client().embeddings.create(input=text, **self._build_kwargs())
-        if not response.data:
+        return response.data[0].embedding if response.data else []
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
             return []
-        return response.data[0].embedding
+        client = self._get_async_client()
+        response = await client.embeddings.create(input=texts, **self._build_kwargs())
+        return _ordered_vectors(response)
+
+    async def aembed_query(self, text: str) -> list[float]:
+        client = self._get_async_client()
+        response = await client.embeddings.create(input=text, **self._build_kwargs())
+        return response.data[0].embedding if response.data else []

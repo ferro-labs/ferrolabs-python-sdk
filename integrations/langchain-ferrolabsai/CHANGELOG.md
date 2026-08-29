@@ -9,10 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 
-- Async surfaces (`_agenerate`, `_astream`, `aembed_documents`, `aembed_query`).
-- `with_structured_output()` helper for JSON-mode + Pydantic-schema responses.
 - Native multi-modal message support (image inputs) once the gateway exposes a
   stable contract.
+
+---
+
+## [0.2.0] — 2026-08-29
+
+Requires `ferrolabsai >= 0.3.0` (the "truth release") and ai-gateway ≥ v1.4.0.
+
+### Breaking
+
+- `response_metadata` now contains exactly what the gateway provides:
+  `model`, `id`, `trace_id` (`X-Request-ID` header), `provider` (body field),
+  `gateway_overhead_ms` (`X-Gateway-Overhead-Ms` header). `latency_ms`,
+  `cost_usd`, and `cache_hit` are gone — the gateway never emitted them, so
+  they were always absent.
+- Removed the `route_tag`, `template_id`, and `template_variables` fields from
+  `FerroChatModel` and `FerroLLM`. The gateway has never read them.
+
+### Added
+
+- Async surface: `FerroChatModel._agenerate` / `_astream` (so `ainvoke`,
+  `astream`, `abatch` run on `AsyncFerroClient` instead of a thread) and
+  `FerroEmbeddings.aembed_documents` / `aembed_query`.
+- `FerroChatModel.with_structured_output(schema, include_raw=False)` via the
+  OpenAI-style `response_format={"type": "json_schema", ...}` path; accepts a
+  pydantic model class or a JSON-schema dict.
+- Streaming: the first chunk carries `trace_id` in `response_metadata`.
+- Python 3.13 classifier.
 
 ---
 

@@ -26,7 +26,6 @@ class FerroLLM(LLM):
     max_retries: int = 2
     temperature: float | None = None
     max_tokens: int | None = None
-    route_tag: str | None = None
     default_headers: dict[str, str] | None = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
@@ -62,8 +61,6 @@ class FerroLLM(LLM):
             params["max_tokens"] = self.max_tokens
         if stop is not None:
             params["stop"] = stop
-        if self.route_tag is not None:
-            params["route_tag"] = self.route_tag
         params.update(kwargs)
 
         response = self._get_client().chat.completions.create(

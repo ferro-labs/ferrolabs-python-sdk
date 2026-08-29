@@ -1,31 +1,33 @@
 """FerroChatModel — LangChain ``BaseChatModel`` backed by Ferro Labs AI Gateway.
 
-A single ``FerroChatModel`` instance can address any of the gateway's 30+
+A single ``FerroChatModel`` instance can address any of the gateway's 30
 providers by name (e.g. ``"gpt-4o"``, ``"claude-3-5-sonnet-20241022"``,
-``"gemini-1.5-flash"``) without changing the model class.
+``"gemini-2.5-flash"``) without changing the model class.
 
-Every response surfaces ``trace_id`` (the Ferro request ID propagated via the
-``x-trace-id`` header — frozen contract since ``ai-gateway v1.1.0``) in
-``response_metadata``. That value is the join key for any downstream
-observability bridge plugin (LangSmith, Langfuse, Phoenix, …) that ships in
-``ferro-labs/ai-gateway-plugins``.
+``response_metadata`` carries exactly what the gateway provides: ``model``,
+``id``, ``trace_id`` (the ``X-Request-ID`` response header — the join key for
+the gateway's request log and observability exporters), ``provider`` (body
+field), and ``gateway_overhead_ms`` (``X-Gateway-Overhead-Ms`` header).
+Absent values are stripped.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
+from operator import itemgetter
 from typing import TYPE_CHECKING, Any, cast
 
-from ferrolabsai import ChatCompletion, FerroClient
-from langchain_core.callbacks import CallbackManagerForLLMRun
+from ferrolabsai import AsyncFerroClient, ChatCompletion, ChatCompletionChunk, FerroClient
+from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.output_parsers import JsonOutputParser, PydanticOutputParser
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
-from langchain_core.runnables import Runnable
+from langchain_core.runnables import Runnable, RunnableMap, RunnablePassthrough
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
-from pydantic import ConfigDict, Field, PrivateAttr, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
 
 from ._messages import messages_to_ferro_dicts
 
@@ -41,10 +43,10 @@ class FerroChatModel(BaseChatModel):
         from langchain_ferrolabsai import FerroChatModel
         from langchain_core.messages import HumanMessage
 
-        chat = FerroChatModel(model="gpt-4o", api_key="sk-ferro-...")
+        chat = FerroChatModel(model="gpt-4o", api_key="fgw_...")
         response = chat.invoke([HumanMessage(content="Hello")])
         print(response.content)
-        print(response.response_metadata["trace_id"])  # Ferro request ID
+        print(response.response_metadata["trace_id"])  # gateway X-Request-ID
     """
 
     model: str = Field(..., description="Model name routed by the gateway.")
@@ -65,14 +67,6 @@ class FerroChatModel(BaseChatModel):
     frequency_penalty: float | None = None
     presence_penalty: float | None = None
     stop: list[str] | None = None
-
-    # Ferro-specific extras
-    route_tag: str | None = Field(
-        default=None,
-        description="Override the gateway's routing strategy for this caller.",
-    )
-    template_id: str | None = None
-    template_variables: dict[str, Any] | None = None
     user: str | None = None
 
     default_headers: dict[str, str] | None = None
@@ -81,6 +75,7 @@ class FerroChatModel(BaseChatModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     _client_instance: FerroClient | None = PrivateAttr(default=None)
+    _async_client_instance: AsyncFerroClient | None = PrivateAttr(default=None)
 
     # ------------------------------------------------------------------
     # LangChain identification
@@ -103,16 +98,24 @@ class FerroChatModel(BaseChatModel):
     # Client access
     # ------------------------------------------------------------------
 
+    def _client_kwargs(self) -> dict[str, Any]:
+        return {
+            "api_key": self.api_key.get_secret_value() if self.api_key else None,
+            "base_url": self.base_url,
+            "timeout": self.timeout,
+            "max_retries": self.max_retries,
+            "default_headers": self.default_headers,
+        }
+
     def _get_client(self) -> FerroClient:
         if self._client_instance is None:
-            self._client_instance = FerroClient(
-                api_key=self.api_key.get_secret_value() if self.api_key else None,
-                base_url=self.base_url,
-                timeout=self.timeout,
-                max_retries=self.max_retries,
-                default_headers=self.default_headers,
-            )
+            self._client_instance = FerroClient(**self._client_kwargs())
         return self._client_instance
+
+    def _get_async_client(self) -> AsyncFerroClient:
+        if self._async_client_instance is None:
+            self._async_client_instance = AsyncFerroClient(**self._client_kwargs())
+        return self._async_client_instance
 
     # ------------------------------------------------------------------
     # Request payload assembly
@@ -137,12 +140,6 @@ class FerroChatModel(BaseChatModel):
         effective_stop = stop if stop is not None else self.stop
         if effective_stop:
             params["stop"] = effective_stop
-        if self.route_tag is not None:
-            params["route_tag"] = self.route_tag
-        if self.template_id is not None:
-            params["template_id"] = self.template_id
-        if self.template_variables is not None:
-            params["template_variables"] = self.template_variables
         if self.user is not None:
             params["user"] = self.user
         # model_kwargs first so explicit per-call kwargs win.
@@ -168,6 +165,20 @@ class FerroChatModel(BaseChatModel):
         )
         return _completion_to_chat_result(response)
 
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        params = self._build_request_params(stop, **kwargs)
+        response = await self._get_async_client().chat.completions.create(
+            messages=messages_to_ferro_dicts(messages),
+            **params,
+        )
+        return _completion_to_chat_result(response)
+
     def _stream(
         self,
         messages: list[BaseMessage],
@@ -181,27 +192,45 @@ class FerroChatModel(BaseChatModel):
             stream=True,
             **params,
         )
+        first = True
         for chunk in stream:
-            if not chunk.choices:
+            generation_chunk = _chunk_to_generation(chunk, first)
+            if generation_chunk is None:
                 continue
-            delta = chunk.choices[0].delta
-            content = delta.content or ""
-            ai_chunk = AIMessageChunk(
-                content=content,
-                tool_call_chunks=_extract_tool_call_chunks(delta.tool_calls),
-            )
-            generation_chunk = ChatGenerationChunk(
-                message=ai_chunk,
-                generation_info={"finish_reason": chunk.choices[0].finish_reason}
-                if chunk.choices[0].finish_reason
-                else None,
-            )
+            first = False
             if run_manager is not None:
-                run_manager.on_llm_new_token(content, chunk=generation_chunk)
+                run_manager.on_llm_new_token(
+                    cast("str", generation_chunk.message.content), chunk=generation_chunk
+                )
+            yield generation_chunk
+
+    async def _astream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        params = self._build_request_params(stop, **kwargs)
+        stream = await self._get_async_client().chat.completions.create(
+            messages=messages_to_ferro_dicts(messages),
+            stream=True,
+            **params,
+        )
+        first = True
+        async for chunk in stream:
+            generation_chunk = _chunk_to_generation(chunk, first)
+            if generation_chunk is None:
+                continue
+            first = False
+            if run_manager is not None:
+                await run_manager.on_llm_new_token(
+                    cast("str", generation_chunk.message.content), chunk=generation_chunk
+                )
             yield generation_chunk
 
     # ------------------------------------------------------------------
-    # Tool binding (LangGraph / agent support)
+    # Tool binding (LangGraph / agent support) and structured output
     # ------------------------------------------------------------------
 
     def bind_tools(
@@ -218,6 +247,47 @@ class FerroChatModel(BaseChatModel):
         bind_kwargs.update(kwargs)
         return cast("Runnable[LanguageModelInput, AIMessage]", super().bind(**bind_kwargs))
 
+    def with_structured_output(
+        self,
+        schema: dict[str, Any] | type,
+        *,
+        include_raw: bool = False,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, dict[str, Any] | BaseModel]:
+        """Constrain the model to ``schema`` via OpenAI-style
+        ``response_format={"type": "json_schema", ...}`` and parse the reply.
+
+        ``schema`` is a pydantic ``BaseModel`` subclass (parsed into an instance)
+        or a JSON-schema dict (parsed into a dict). With ``include_raw=True`` the
+        output is ``{"raw": AIMessage, "parsed": ..., "parsing_error": ...}``.
+        """
+        parser: Runnable[Any, Any]
+        if isinstance(schema, type) and issubclass(schema, BaseModel):
+            name, json_schema = schema.__name__, schema.model_json_schema()
+            parser = PydanticOutputParser(pydantic_object=schema)
+        elif isinstance(schema, dict):
+            name, json_schema = str(schema.get("title", "output")), schema
+            parser = JsonOutputParser()
+        else:
+            raise TypeError("schema must be a pydantic BaseModel subclass or a JSON-schema dict")
+        llm = self.bind(
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": name, "schema": json_schema},
+            },
+            **kwargs,
+        )
+        if not include_raw:
+            return cast("Runnable[LanguageModelInput, dict[str, Any] | BaseModel]", llm | parser)
+        parse = RunnablePassthrough.assign(
+            parsed=itemgetter("raw") | parser, parsing_error=lambda _: None
+        )
+        fallback = RunnablePassthrough.assign(parsed=lambda _: None)
+        chain = RunnableMap(raw=llm) | parse.with_fallbacks(
+            [fallback], exception_key="parsing_error"
+        )
+        return cast("Runnable[LanguageModelInput, dict[str, Any] | BaseModel]", chain)
+
 
 # ---------------------------------------------------------------------------
 # Response mapping
@@ -226,49 +296,35 @@ class FerroChatModel(BaseChatModel):
 
 def _completion_to_chat_result(response: ChatCompletion) -> ChatResult:
     """Convert a Ferro ``ChatCompletion`` into a LangChain ``ChatResult``."""
+    metadata = _response_metadata(response)
     if not response.choices:
-        empty = AIMessage(
-            content="",
-            response_metadata=_response_metadata(response),
-        )
+        empty = AIMessage(content="", response_metadata=metadata)
         return ChatResult(generations=[ChatGeneration(message=empty)])
 
     choice = response.choices[0]
-    tool_calls = _extract_tool_calls(choice.message.tool_calls)
     ai_message = AIMessage(
         content=choice.message.content or "",
-        tool_calls=tool_calls,
-        response_metadata=_response_metadata(response),
+        tool_calls=_extract_tool_calls(choice.message.tool_calls),
+        response_metadata=metadata,
         usage_metadata=_usage_metadata(response),
     )
     generation = ChatGeneration(
         message=ai_message,
         generation_info={"finish_reason": choice.finish_reason} if choice.finish_reason else None,
     )
-    return ChatResult(
-        generations=[generation],
-        llm_output={
-            "model": response.model,
-            "trace_id": response.trace_id,
-            "provider": response.provider,
-        },
-    )
+    # LangChain merges llm_output into response_metadata; keep them identical.
+    return ChatResult(generations=[generation], llm_output=metadata)
 
 
 def _response_metadata(response: ChatCompletion) -> dict[str, Any]:
-    """The Ferro-specific surface every consumer (incl. v1.2 observability bridges) reads."""
+    """Exactly the fields ai-gateway provides; ``None`` values are stripped."""
     metadata: dict[str, Any] = {
         "model": response.model,
         "id": response.id,
-        # ``trace_id`` is the canonical join key. Frozen via x-trace-id since
-        # ai-gateway v1.1.0; mirrored by every Ferro observability bridge plugin.
         "trace_id": response.trace_id,
         "provider": response.provider,
-        "latency_ms": response.latency_ms,
+        "gateway_overhead_ms": response.gateway_overhead_ms,
     }
-    if response.usage is not None:
-        metadata["cost_usd"] = response.usage.cost_usd
-        metadata["cache_hit"] = response.usage.cache_hit
     return {k: v for k, v in metadata.items() if v is not None}
 
 
@@ -280,6 +336,24 @@ def _usage_metadata(response: ChatCompletion) -> dict[str, int] | None:
         "output_tokens": response.usage.completion_tokens,
         "total_tokens": response.usage.total_tokens,
     }
+
+
+def _chunk_to_generation(chunk: ChatCompletionChunk, first: bool) -> ChatGenerationChunk | None:
+    """Map one SSE chunk to a ``ChatGenerationChunk``; ``None`` for chunks with no choices
+    (e.g. the terminal usage-only chunk). Stream metadata rides on the first chunk."""
+    if not chunk.choices:
+        return None
+    choice = chunk.choices[0]
+    metadata = {k: v for k, v in (("trace_id", chunk.trace_id), ("provider", chunk.provider)) if v}
+    ai_chunk = AIMessageChunk(
+        content=choice.delta.content or "",
+        tool_call_chunks=_extract_tool_call_chunks(choice.delta.tool_calls),
+        response_metadata=metadata if first else {},
+    )
+    return ChatGenerationChunk(
+        message=ai_chunk,
+        generation_info={"finish_reason": choice.finish_reason} if choice.finish_reason else None,
+    )
 
 
 def _extract_tool_call_chunks(raw: list[dict[str, Any]] | None) -> list[ToolCallChunk]:
