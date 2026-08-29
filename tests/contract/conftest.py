@@ -44,11 +44,18 @@ def client() -> Iterator[FerroClient]:
 
 
 @pytest.fixture(scope="session")
-def admin_guard(client: FerroClient) -> str:
+def admin_guard(client: FerroClient) -> Iterator[str]:
     """The gateway refuses to revoke/delete the last admin *record* (409) — the
     MASTER_KEY is not a record — so tests that delete admin keys need one
     extra admin key parked for the whole session."""
-    return client.admin.keys.create(name="contract-guard", scopes=["admin"]).id
+    key_id = client.admin.keys.create(name="contract-guard", scopes=["admin"]).id
+    try:
+        yield key_id
+    finally:
+        try:
+            client.admin.keys.delete(key_id)
+        except Exception:
+            pass  # teardown must never mask a test failure
 
 
 @pytest.fixture
