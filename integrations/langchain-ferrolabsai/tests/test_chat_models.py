@@ -154,6 +154,33 @@ class TestStreaming:
         assert "".join(c.content for c in chunks) == "Hello"
         assert chunks[0].response_metadata["trace_id"] == TRACE_ID
 
+    def test_stream_terminal_usage_chunk_survives_aggregation(self, httpx_mock: HTTPXMock):
+        usage_frame = {
+            "id": "1",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "gpt-4o",
+            "choices": [],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+        }
+        body = sse_chunks("Hel", "lo").replace(
+            b"data: [DONE]", f"data: {json.dumps(usage_frame)}\n\ndata: [DONE]".encode()
+        )
+        httpx_mock.add_response(
+            method="POST",
+            url=CHAT_URL,
+            content=body,
+            headers={"Content-Type": "text/event-stream", **GATEWAY_HEADERS},
+        )
+        chunks = list(_build_chat().stream([HumanMessage(content="hi")]))
+        total = chunks[0]
+        for chunk in chunks[1:]:
+            total = total + chunk
+        assert total.content == "Hello"
+        assert total.usage_metadata is not None
+        assert total.usage_metadata["total_tokens"] == 8
+        assert total.response_metadata["trace_id"] == TRACE_ID
+
     def test_stream_yields_tool_call_chunks(self, httpx_mock: HTTPXMock):
         frames = [
             {

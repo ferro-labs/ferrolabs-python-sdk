@@ -22,6 +22,7 @@ from ferrolabsai import AsyncFerroClient, ChatCompletion, ChatCompletionChunk, F
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.messages.ai import UsageMetadata
 from langchain_core.output_parsers import JsonOutputParser, PydanticOutputParser
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable, RunnableMap, RunnablePassthrough
@@ -328,21 +329,26 @@ def _response_metadata(response: ChatCompletion) -> dict[str, Any]:
     return {k: v for k, v in metadata.items() if v is not None}
 
 
-def _usage_metadata(response: ChatCompletion) -> dict[str, int] | None:
+def _usage_metadata(response: ChatCompletion | ChatCompletionChunk) -> UsageMetadata | None:
     if response.usage is None:
         return None
-    return {
-        "input_tokens": response.usage.prompt_tokens,
-        "output_tokens": response.usage.completion_tokens,
-        "total_tokens": response.usage.total_tokens,
-    }
+    return UsageMetadata(
+        input_tokens=response.usage.prompt_tokens,
+        output_tokens=response.usage.completion_tokens,
+        total_tokens=response.usage.total_tokens,
+    )
 
 
 def _chunk_to_generation(chunk: ChatCompletionChunk, first: bool) -> ChatGenerationChunk | None:
-    """Map one SSE chunk to a ``ChatGenerationChunk``; ``None`` for chunks with no choices
-    (e.g. the terminal usage-only chunk). Stream metadata rides on the first chunk."""
+    """Map one SSE chunk to a ``ChatGenerationChunk``. The terminal usage-only chunk
+    becomes an empty message carrying ``usage_metadata`` (so it survives chunk
+    aggregation); a chunk with neither choices nor usage yields ``None``. Stream
+    metadata rides on the first chunk."""
     if not chunk.choices:
-        return None
+        usage = _usage_metadata(chunk)
+        if usage is None:
+            return None
+        return ChatGenerationChunk(message=AIMessageChunk(content="", usage_metadata=usage))
     choice = chunk.choices[0]
     metadata = {k: v for k, v in (("trace_id", chunk.trace_id), ("provider", chunk.provider)) if v}
     ai_chunk = AIMessageChunk(
