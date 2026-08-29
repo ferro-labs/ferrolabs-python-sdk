@@ -91,3 +91,33 @@ class TestEmbedQuery:
         embed.embed_query("hello")
         body = json.loads(httpx_mock.get_requests()[0].content)
         assert body["input"] == "hello"
+
+
+class TestAsync:
+    async def test_aembed_documents_preserves_order(self, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/embeddings",
+            json={
+                "object": "list",
+                "model": "text-embedding-3-small",
+                "data": [
+                    {"index": 1, "embedding": [0.3], "object": "embedding"},
+                    {"index": 0, "embedding": [0.1], "object": "embedding"},
+                ],
+            },
+        )
+        assert await _build().aembed_documents(["a", "b"]) == [[0.1], [0.3]]
+
+    async def test_aembed_query(self, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{BASE_URL}/v1/embeddings",
+            json=make_embedding_response(vectors=[[0.9]]),
+        )
+        assert await _build().aembed_query("hello") == [0.9]
+        assert json.loads(httpx_mock.get_requests()[0].content)["input"] == "hello"
+
+    async def test_aembed_documents_empty_makes_no_request(self, httpx_mock: HTTPXMock):
+        assert await _build().aembed_documents([]) == []
+        assert httpx_mock.get_requests() == []

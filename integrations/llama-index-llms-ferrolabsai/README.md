@@ -22,7 +22,7 @@ from llama_index.llms.ferrolabsai import FerroLabsAI
 
 llm = FerroLabsAI(
     model="gpt-4o",
-    base_url="http://localhost:8080",   # any Ferro Labs AI Gateway instance
+    base_url="http://localhost:8080",  # any Ferro Labs AI Gateway instance
     api_key="sk-ferro-...",
 )
 

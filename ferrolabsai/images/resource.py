@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..types import ImageResponse
 
+if TYPE_CHECKING:
+    from ..client import FerroClient
+
+PATH = "/v1/images/generations"
+
+
+def build_body(model: str, prompt: str, **optional: Any) -> dict[str, Any]:
+    body: dict[str, Any] = {"model": model, "prompt": prompt}
+    body.update({k: v for k, v in optional.items() if v is not None})
+    return body
+
 
 class Images:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: FerroClient) -> None:
         self._client = client
 
     def generate(
@@ -43,19 +54,14 @@ class Images:
             )
             print(response.data[0].url)
         """
-        body: dict[str, Any] = {"model": model, "prompt": prompt}
-        if n is not None:
-            body["n"] = n
-        if size is not None:
-            body["size"] = size
-        if quality is not None:
-            body["quality"] = quality
-        if response_format is not None:
-            body["response_format"] = response_format
-        if style is not None:
-            body["style"] = style
-        if user is not None:
-            body["user"] = user
-
-        data = self._client._request("POST", "/v1/images/generations", json=body)
-        return ImageResponse.from_dict(data)
+        body = build_body(
+            model,
+            prompt,
+            n=n,
+            size=size,
+            quality=quality,
+            response_format=response_format,
+            style=style,
+            user=user,
+        )
+        return ImageResponse.from_dict(self._client._request("POST", PATH, json=body))

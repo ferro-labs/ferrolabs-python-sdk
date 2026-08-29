@@ -1,41 +1,44 @@
-"""Async admin resource for /admin/*."""
+"""Async admin resource for /admin/* — see ``admin/resource.py`` for route docs."""
 
 from __future__ import annotations
 
 import builtins
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..types import APIKey, ConfigHistoryEntry, CreatedAPIKey, GatewayConfig
+from .resource import items, query
+
+if TYPE_CHECKING:
+    from ..client import AsyncFerroClient
 
 
 class AsyncAdmin:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: AsyncFerroClient) -> None:
         self._client = client
         self.keys = _AsyncKeysResource(client)
         self.config = _AsyncConfigResource(client)
         self.logs = _AsyncLogsResource(client)
         self.providers = _AsyncProvidersResource(client)
         self.plugins = _AsyncPluginsResource(client)
+        self.audit = _AsyncAuditResource(client)
 
     async def dashboard(self) -> dict[str, Any]:
-        return await self._client._request("GET", "/admin/dashboard")  # type: ignore[no-any-return]
+        return await self._client._request("GET", "/admin/dashboard")
 
     async def health(self) -> dict[str, Any]:
-        return await self._client._request("GET", "/admin/health")  # type: ignore[no-any-return]
+        return await self._client._request("GET", "/admin/health")
 
 
 class _AsyncKeysResource:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: AsyncFerroClient) -> None:
         self._client = client
 
     async def list(self) -> builtins.list[APIKey]:
         data = await self._client._request("GET", "/admin/keys")
-        items = data if isinstance(data, list) else (data.get("keys") or data.get("data") or [])
-        return [APIKey.from_dict(k) for k in items]
+        return [APIKey.from_dict(k) for k in items(data, "keys", "data")]
 
     async def retrieve(self, key_id: str) -> APIKey:
-        data = await self._client._request("GET", f"/admin/keys/{key_id}")
-        return APIKey.from_dict(data)
+        return APIKey.from_dict(await self._client._request("GET", f"/admin/keys/{key_id}"))
 
     async def create(
         self,
@@ -44,13 +47,10 @@ class _AsyncKeysResource:
         scopes: builtins.list[str] | None = None,
         expires_at: str | None = None,
     ) -> CreatedAPIKey:
-        body: dict[str, Any] = {"name": name}
-        if scopes is not None:
-            body["scopes"] = scopes
-        if expires_at is not None:
-            body["expires_at"] = expires_at
-        data = await self._client._request("POST", "/admin/keys", json=body)
-        return CreatedAPIKey.from_dict(data)
+        body = query(name=name, scopes=scopes, expires_at=expires_at)
+        return CreatedAPIKey.from_dict(
+            await self._client._request("POST", "/admin/keys", json=body)
+        )
 
     async def update(
         self,
@@ -61,15 +61,7 @@ class _AsyncKeysResource:
         expires_at: str | None = None,
         active: bool | None = None,
     ) -> APIKey:
-        body: dict[str, Any] = {}
-        if name is not None:
-            body["name"] = name
-        if scopes is not None:
-            body["scopes"] = scopes
-        if expires_at is not None:
-            body["expires_at"] = expires_at
-        if active is not None:
-            body["active"] = active
+        body = query(name=name, scopes=scopes, expires_at=expires_at, active=active)
         data = await self._client._request("PUT", f"/admin/keys/{key_id}", json=body)
         return APIKey.from_dict(data)
 
@@ -92,42 +84,42 @@ class _AsyncKeysResource:
         active: bool | None = None,
         since: str | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {"limit": limit, "offset": offset, "sort": sort}
-        if active is not None:
-            params["active"] = "true" if active else "false"
-        if since is not None:
-            params["since"] = since
-        return await self._client._request("GET", "/admin/keys/usage", params=params)  # type: ignore[no-any-return]
+        params = query(
+            limit=limit,
+            offset=offset,
+            sort=sort,
+            active=None if active is None else ("true" if active else "false"),
+            since=since,
+        )
+        return await self._client._request("GET", "/admin/keys/usage", params=params)
 
 
 class _AsyncConfigResource:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: AsyncFerroClient) -> None:
         self._client = client
 
     async def get(self) -> GatewayConfig:
-        data = await self._client._request("GET", "/admin/config")
-        return GatewayConfig.from_dict(data)
+        return GatewayConfig.from_dict(await self._client._request("GET", "/admin/config"))
 
     async def create(self, config: dict[str, Any]) -> dict[str, Any]:
-        return await self._client._request("POST", "/admin/config", json=config)  # type: ignore[no-any-return]
+        return await self._client._request("POST", "/admin/config", json=config)
 
     async def update(self, config: dict[str, Any]) -> dict[str, Any]:
-        return await self._client._request("PUT", "/admin/config", json=config)  # type: ignore[no-any-return]
+        return await self._client._request("PUT", "/admin/config", json=config)
 
     async def delete(self) -> dict[str, Any]:
-        return await self._client._request("DELETE", "/admin/config")  # type: ignore[no-any-return]
+        return await self._client._request("DELETE", "/admin/config")
 
-    async def history(self) -> list[ConfigHistoryEntry]:
+    async def history(self) -> builtins.list[ConfigHistoryEntry]:
         data = await self._client._request("GET", "/admin/config/history")
-        items = data.get("data") if isinstance(data, dict) else data
-        return [ConfigHistoryEntry.from_dict(e) for e in (items or [])]
+        return [ConfigHistoryEntry.from_dict(e) for e in items(data, "data")]
 
     async def rollback(self, version: int) -> dict[str, Any]:
-        return await self._client._request("POST", f"/admin/config/rollback/{version}")  # type: ignore[no-any-return]
+        return await self._client._request("POST", f"/admin/config/rollback/{version}")
 
 
 class _AsyncLogsResource:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: AsyncFerroClient) -> None:
         self._client = client
 
     async def list(
@@ -139,30 +131,28 @@ class _AsyncLogsResource:
         provider: str | None = None,
         model: str | None = None,
         since: str | None = None,
+        api_key_id: str | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {"limit": limit, "offset": offset}
-        if stage is not None:
-            params["stage"] = stage
-        if provider is not None:
-            params["provider"] = provider
-        if model is not None:
-            params["model"] = model
-        if since is not None:
-            params["since"] = since
-        return await self._client._request("GET", "/admin/logs", params=params)  # type: ignore[no-any-return]
+        params = query(
+            limit=limit,
+            offset=offset,
+            stage=stage,
+            provider=provider,
+            model=model,
+            since=since,
+            api_key_id=api_key_id,
+        )
+        return await self._client._request("GET", "/admin/logs", params=params)
 
     async def stats(
         self,
         *,
+        buckets: int | None = None,
         limit: int | None = None,
         since: str | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {}
-        if limit is not None:
-            params["limit"] = limit
-        if since is not None:
-            params["since"] = since
-        return await self._client._request("GET", "/admin/logs/stats", params=params or None)  # type: ignore[no-any-return]
+        params = query(buckets=buckets, limit=limit, since=since)
+        return await self._client._request("GET", "/admin/logs/stats", params=params or None)
 
     async def delete(
         self,
@@ -170,31 +160,54 @@ class _AsyncLogsResource:
         before: str | None = None,
         stage: str | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {}
-        if before is not None:
-            params["before"] = before
-        if stage is not None:
-            params["stage"] = stage
-        return await self._client._request("DELETE", "/admin/logs", params=params or None)  # type: ignore[no-any-return]
+        params = query(before=before, stage=stage)
+        return await self._client._request("DELETE", "/admin/logs", params=params or None)
 
 
 class _AsyncProvidersResource:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: AsyncFerroClient) -> None:
         self._client = client
 
     async def list(self) -> builtins.list[dict[str, Any]]:
-        data = await self._client._request("GET", "/admin/providers")
-        if isinstance(data, list):
-            return data
-        return data.get("data") or data.get("providers") or []
+        return items(await self._client._request("GET", "/admin/providers"), "data", "providers")
+
+    async def catalog(self) -> builtins.list[dict[str, Any]]:
+        return items(
+            await self._client._request("GET", "/admin/providers/catalog"), "providers", "data"
+        )
 
 
 class _AsyncPluginsResource:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: AsyncFerroClient) -> None:
         self._client = client
 
     async def list(self) -> builtins.list[dict[str, Any]]:
-        data = await self._client._request("GET", "/admin/plugins")
-        if isinstance(data, list):
-            return data
-        return data.get("data") or data.get("plugins") or []
+        return items(await self._client._request("GET", "/admin/plugins"), "data", "plugins")
+
+    async def catalog(self) -> builtins.list[dict[str, Any]]:
+        return items(await self._client._request("GET", "/admin/plugins/catalog"), "data")
+
+
+class _AsyncAuditResource:
+    def __init__(self, client: AsyncFerroClient) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        *,
+        action: str | None = None,
+        actor_id: str | None = None,
+        outcome: str | None = None,
+        since: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        params = query(
+            limit=limit,
+            offset=offset,
+            action=action,
+            actor_id=actor_id,
+            outcome=outcome,
+            since=since,
+        )
+        return await self._client._request("GET", "/admin/audit", params=params)

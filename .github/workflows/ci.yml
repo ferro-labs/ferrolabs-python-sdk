@@ -9,6 +9,9 @@ on:
   pull_request:
     branches: [main, development]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -16,10 +19,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -31,19 +36,65 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Lint
-        run: ruff check ferrolabsai/
+        run: ruff check ferrolabsai/ tests/ && ruff format --check ferrolabsai/ tests/
 
       - name: Type check
-        run: mypy ferrolabsai/ --ignore-missing-imports
-        # Only enforce strict types on 3.11+
-        if: matrix.python-version == '3.11'
+        run: mypy ferrolabsai/
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
 
+  contract:
+    name: Contract vs AI Gateway ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    # The pinned leg is the required signal; "main" moves upstream of this
+    # repo, so a failure there must only report drift, never block a merge or
+    # a tagged release.
+    continue-on-error: ${{ matrix.gateway_ref == 'main' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The pin is the commit SHA behind the tag so a moved tag cannot change
+          # what a release is verified against; `label` keeps the check name
+          # stable ("Contract vs AI Gateway v1.4.5"), which the publish job and
+          # the branch protection rules reference.
+          - gateway_ref: e8e4e26ddbd1dcf734722d82f02fabb50ce50037  # v1.4.5
+            label: v1.4.5
+          - gateway_ref: main
+            label: main
+    steps:
+      - name: Check out ferrolabs-python-sdk
+        uses: actions/checkout@v4
+        with:
+          path: ferrolabs-python-sdk
+          persist-credentials: false
+      - name: Check out AI Gateway
+        uses: actions/checkout@v4
+        with:
+          repository: ferro-labs/ai-gateway
+          ref: ${{ matrix.gateway_ref }}
+          path: ai-gateway
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ai-gateway/go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the SDK
+        run: pip install -e ".[dev]"
+        working-directory: ferrolabs-python-sdk
+      - name: Boot the gateway and run the contract suite
+        run: ./scripts/with-gateway.sh
+        working-directory: ferrolabs-python-sdk
+        env:
+          FERRO_GATEWAY_SOURCE: ${{ github.workspace }}/ai-gateway
+
   publish:
     name: Publish to PyPI
-    needs: test
+    # A release must pass the unit matrix and the pinned-gateway contract leg.
+    needs: [test, contract]
     runs-on: ubuntu-latest
     # Only run on semver tag pushes (see `on.push.tags` above).
     if: startsWith(github.ref, 'refs/tags/v')
@@ -62,6 +113,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5

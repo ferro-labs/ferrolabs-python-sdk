@@ -1,12 +1,40 @@
 """
 Typed response models for the Ferro AI Gateway Python SDK.
 All models are dataclasses so they work without pydantic as a hard dependency.
+
+Field shapes follow ai-gateway v1.4.x (``providers/core/chat.go``,
+``internal/handler/models.go``, ``internal/admin/model``). Gateway-specific
+extensions are: body ``provider`` / ``provider_metadata`` / ``reasoning_content``
+and the extra ``usage`` token counters; ``trace_id`` and ``gateway_overhead_ms``
+come from the ``X-Request-ID`` and ``X-Gateway-Overhead-Ms`` response headers.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+from .types_responses import Response
+
+__all__ = [
+    "APIKey",
+    "ChatCompletion",
+    "ChatCompletionChunk",
+    "ChatMessage",
+    "Choice",
+    "ConfigHistoryEntry",
+    "CreatedAPIKey",
+    "EmbeddingData",
+    "EmbeddingResponse",
+    "GatewayConfig",
+    "ImageData",
+    "ImageResponse",
+    "ModelInfo",
+    "Response",
+    "StreamChoice",
+    "StreamDelta",
+    "Usage",
+]
 
 # ------------------------------------------------------------------
 # Chat completions
@@ -20,6 +48,7 @@ class ChatMessage:
     tool_calls: list[dict[str, Any]] | None = None
     tool_call_id: str | None = None
     name: str | None = None
+    reasoning_content: str | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ChatMessage:
@@ -29,6 +58,7 @@ class ChatMessage:
             tool_calls=d.get("tool_calls"),
             tool_call_id=d.get("tool_call_id"),
             name=d.get("name"),
+            reasoning_content=d.get("reasoning_content"),
         )
 
 
@@ -37,10 +67,10 @@ class Usage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
-    # Ferro extras
-    cost_usd: float | None = None
-    cache_hit: bool | None = None
-    provider: str | None = None
+    # Gateway extensions (omitted by the gateway when zero).
+    reasoning_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Usage:
@@ -48,9 +78,9 @@ class Usage:
             prompt_tokens=d.get("prompt_tokens", 0),
             completion_tokens=d.get("completion_tokens", 0),
             total_tokens=d.get("total_tokens", 0),
-            cost_usd=d.get("cost_usd"),
-            cache_hit=d.get("cache_hit"),
-            provider=d.get("provider"),
+            reasoning_tokens=d.get("reasoning_tokens"),
+            cache_read_tokens=d.get("cache_read_tokens"),
+            cache_write_tokens=d.get("cache_write_tokens"),
         )
 
 
@@ -79,10 +109,11 @@ class ChatCompletion:
     model: str
     choices: list[Choice]
     usage: Usage | None = None
-    # Ferro-specific extras
-    trace_id: str | None = None
-    provider: str | None = None
-    latency_ms: int | None = None
+    # Gateway extensions
+    trace_id: str | None = None  # X-Request-ID header
+    provider: str | None = None  # body `provider` (or X-Gateway-Provider header)
+    gateway_overhead_ms: float | None = None  # X-Gateway-Overhead-Ms header
+    provider_metadata: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ChatCompletion:
@@ -93,9 +124,10 @@ class ChatCompletion:
             model=d.get("model", ""),
             choices=[Choice.from_dict(c) for c in d.get("choices", [])],
             usage=Usage.from_dict(d["usage"]) if d.get("usage") else None,
-            trace_id=d.get("x_ferro_trace_id") or d.get("trace_id"),
-            provider=d.get("x_ferro_provider") or d.get("provider"),
-            latency_ms=d.get("x_ferro_latency_ms") or d.get("latency_ms"),
+            trace_id=d.get("trace_id"),
+            provider=d.get("provider"),
+            gateway_overhead_ms=d.get("gateway_overhead_ms"),
+            provider_metadata=d.get("provider_metadata"),
         )
 
     @property
@@ -116,6 +148,7 @@ class StreamDelta:
     role: str | None = None
     content: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
+    reasoning_content: str | None = None
 
 
 @dataclass
@@ -133,6 +166,7 @@ class StreamChoice:
                 role=delta.get("role"),
                 content=delta.get("content"),
                 tool_calls=delta.get("tool_calls"),
+                reasoning_content=delta.get("reasoning_content"),
             ),
             finish_reason=d.get("finish_reason"),
         )
@@ -145,6 +179,12 @@ class ChatCompletionChunk:
     created: int
     model: str
     choices: list[StreamChoice]
+    # Only on the terminal chunk, and only when the request sent
+    # ``stream_options={"include_usage": True}``.
+    usage: Usage | None = None
+    # Copied from the stream's response headers onto every chunk.
+    trace_id: str | None = None
+    provider: str | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ChatCompletionChunk:
@@ -154,6 +194,7 @@ class ChatCompletionChunk:
             created=d.get("created", 0),
             model=d.get("model", ""),
             choices=[StreamChoice.from_dict(c) for c in d.get("choices", [])],
+            usage=Usage.from_dict(d["usage"]) if d.get("usage") else None,
         )
 
 
@@ -183,6 +224,7 @@ class EmbeddingResponse:
     data: list[EmbeddingData]
     model: str
     usage: Usage | None = None
+    trace_id: str | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> EmbeddingResponse:
@@ -191,6 +233,7 @@ class EmbeddingResponse:
             data=[EmbeddingData.from_dict(e) for e in d.get("data", [])],
             model=d.get("model", ""),
             usage=Usage.from_dict(d["usage"]) if d.get("usage") else None,
+            trace_id=d.get("trace_id"),
         )
 
 
@@ -218,12 +261,14 @@ class ImageData:
 class ImageResponse:
     created: int
     data: list[ImageData]
+    trace_id: str | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ImageResponse:
         return cls(
             created=d.get("created", 0),
             data=[ImageData.from_dict(i) for i in d.get("data", [])],
+            trace_id=d.get("trace_id"),
         )
 
 
@@ -231,10 +276,9 @@ class ImageResponse:
 # Admin — API Keys
 # ------------------------------------------------------------------
 #
-# Field shape matches admin.APIKey in
-# ai-gateway/internal/admin/keys.go. On retrieve (GET /admin/keys/{id})
-# the gateway masks `key` to `<first 8 chars>...`. On create / rotate the
-# full key is returned exactly once — captured by CreatedAPIKey below.
+# Field shape matches model.APIKey in ai-gateway/internal/admin/model.
+# Listings and GET /admin/keys/{id} mask `key` to `fgw_ab12...cd34`; the full
+# secret is returned exactly once from create / rotate (CreatedAPIKey).
 
 
 @dataclass
@@ -245,7 +289,7 @@ class APIKey:
     created_at: str = ""
     active: bool = True
     usage_count: int = 0
-    key: str | None = None  # masked (e.g. "fgw_abcd...") on retrieve
+    key: str | None = None  # masked (e.g. "fgw_ab12...cd34") on retrieve
     expires_at: str | None = None
     revoked_at: str | None = None
     rotated_at: str | None = None
@@ -342,32 +386,39 @@ class ConfigHistoryEntry:
 
 
 # ------------------------------------------------------------------
-# Model catalog
+# Model catalog — EnrichedModelInfo (ai-gateway internal/handler/models.go)
 # ------------------------------------------------------------------
 
 
 @dataclass
 class ModelInfo:
     id: str
-    object: str
-    provider: str
+    object: str = "model"
+    owned_by: str = ""
+    created: int = 0
+    mode: str | None = None  # "chat", "embedding", "image", ...
     context_window: int | None = None
     max_output_tokens: int | None = None
-    input_cost_per_token: float | None = None
-    output_cost_per_token: float | None = None
-    capabilities: list[str] | None = None
+    capabilities: list[str] = field(default_factory=list)
     status: str | None = None
+    deprecated: bool = False
+
+    @property
+    def provider(self) -> str:
+        """Alias for ``owned_by`` — the provider that serves this model."""
+        return self.owned_by
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ModelInfo:
         return cls(
             id=d.get("id", ""),
             object=d.get("object", "model"),
-            provider=d.get("owned_by") or d.get("provider", ""),
+            owned_by=d.get("owned_by", ""),
+            created=d.get("created", 0),
+            mode=d.get("mode"),
             context_window=d.get("context_window"),
             max_output_tokens=d.get("max_output_tokens"),
-            input_cost_per_token=d.get("input_cost_per_token"),
-            output_cost_per_token=d.get("output_cost_per_token"),
-            capabilities=d.get("capabilities"),
+            capabilities=d.get("capabilities") or [],
             status=d.get("status"),
+            deprecated=d.get("deprecated", False),
         )

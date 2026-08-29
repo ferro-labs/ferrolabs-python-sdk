@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Iterator
-from typing import Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
-from ..exceptions import FerroStreamError
-from ..types import ChatCompletion, ChatCompletionChunk
+from ..streaming import Stream
+from ..types import ChatCompletion
+
+if TYPE_CHECKING:
+    from ..client import FerroClient
+
+PATH = "/v1/chat/completions"
+
+
+def build_body(
+    model: str, messages: list[dict[str, Any]], stream: bool, **optional: Any
+) -> dict[str, Any]:
+    """OpenAI-shaped request body; ``None`` optionals are omitted."""
+    body: dict[str, Any] = {"model": model, "messages": messages, "stream": stream}
+    body.update({k: v for k, v in optional.items() if v is not None})
+    return body
 
 
 class Completions:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: FerroClient) -> None:
         self._client = client
 
     @overload
@@ -32,7 +44,7 @@ class Completions:
         messages: list[dict[str, Any]],
         stream: Literal[True],
         **kwargs: Any,
-    ) -> Iterator[ChatCompletionChunk]: ...
+    ) -> Stream: ...
 
     def create(
         self,
@@ -42,34 +54,34 @@ class Completions:
         stream: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
         top_p: float | None = None,
         frequency_penalty: float | None = None,
         presence_penalty: float | None = None,
         stop: str | list[str] | None = None,
+        seed: int | None = None,
         tools: list[dict[str, Any]] | None = None,
         tool_choice: Any | None = None,
-        # Ferro-specific extras
-        template_id: str | None = None,
-        template_variables: dict[str, Any] | None = None,
-        route_tag: str | None = None,
+        parallel_tool_calls: bool | None = None,
+        response_format: dict[str, Any] | None = None,
+        stream_options: dict[str, Any] | None = None,
         user: str | None = None,
         **kwargs: Any,
-    ) -> ChatCompletion | Iterator[ChatCompletionChunk]:
+    ) -> ChatCompletion | Stream:
         """
-        Create a chat completion. OpenAI-compatible with Ferro extras.
+        Create a chat completion (OpenAI-compatible).
 
         Args:
-            model: Model name. Ferro auto-routes to the correct provider.
-                   E.g. "gpt-4o" → OpenAI, "claude-3-5-sonnet-20241022" → Anthropic.
+            model: Model name. The gateway routes it to the right provider, e.g.
+                "gpt-4o" → OpenAI, "claude-3-5-sonnet-20241022" → Anthropic.
             messages: List of message dicts with "role" and "content".
-            stream: If True, returns an iterator of ChatCompletionChunk objects.
-            template_id: Use a server-side prompt template (Ferro-specific).
-            template_variables: Variables for the template (Ferro-specific).
-            route_tag: Override routing strategy for this request (Ferro-specific).
-            user: End-user identifier for per-user tracking (Ferro-specific).
-
-        Returns:
-            ChatCompletion or Iterator[ChatCompletionChunk] if stream=True.
+            stream: If True, returns a :class:`~ferrolabsai.Stream` of chunks that
+                also carries ``trace_id`` / ``provider`` from the response headers.
+            max_completion_tokens: Supersedes ``max_tokens`` (both are accepted).
+            stream_options: e.g. ``{"include_usage": True}`` to receive a terminal
+                chunk with ``usage`` (only honoured when ``stream=True``).
+            response_format: e.g. ``{"type": "json_object"}`` or a ``json_schema`` spec.
+            **kwargs: Any other OpenAI parameter is forwarded verbatim.
 
         Example::
 
@@ -77,69 +89,38 @@ class Completions:
                 model="gpt-4o",
                 messages=[{"role": "user", "content": "Hello"}],
             )
-            print(response.content)
+            print(response.content, response.provider, response.trace_id)
 
             # Streaming
-            for chunk in client.chat.completions.create(
+            stream = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": "Hello"}],
                 stream=True,
-            ):
+                stream_options={"include_usage": True},
+            )
+            for chunk in stream:
                 print(chunk.choices[0].delta.content or "", end="", flush=True)
         """
-        body: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "stream": stream,
-        }
-
-        # Standard OpenAI params
-        if temperature is not None:
-            body["temperature"] = temperature
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
-        if top_p is not None:
-            body["top_p"] = top_p
-        if frequency_penalty is not None:
-            body["frequency_penalty"] = frequency_penalty
-        if presence_penalty is not None:
-            body["presence_penalty"] = presence_penalty
-        if stop is not None:
-            body["stop"] = stop
-        if tools is not None:
-            body["tools"] = tools
-        if tool_choice is not None:
-            body["tool_choice"] = tool_choice
-        if user is not None:
-            body["user"] = user
-
-        # Ferro-specific
-        if template_id is not None:
-            body["template_id"] = template_id
-        if template_variables is not None:
-            body["template_variables"] = template_variables
-        if route_tag is not None:
-            body["x_route_tag"] = route_tag
-
-        body.update(kwargs)
-
+        body = build_body(
+            model,
+            messages,
+            stream,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            stop=stop,
+            seed=seed,
+            tools=tools,
+            tool_choice=tool_choice,
+            parallel_tool_calls=parallel_tool_calls,
+            response_format=response_format,
+            stream_options=stream_options,
+            user=user,
+            **kwargs,
+        )
         if stream:
-            return self._stream("/v1/chat/completions", body)
-
-        data = self._client._request("POST", "/v1/chat/completions", json=body)
-        return ChatCompletion.from_dict(data)
-
-    def _stream(self, path: str, body: dict[str, Any]) -> Iterator[ChatCompletionChunk]:
-        """Yields parsed ChatCompletionChunk objects from an SSE stream."""
-        for line in self._client._stream_request(path, body):
-            if line.startswith("data: "):
-                payload = line[6:].strip()
-                if payload == "[DONE]":
-                    return
-                try:
-                    chunk_data = json.loads(payload)
-                except json.JSONDecodeError as e:
-                    raise FerroStreamError(
-                        f"Malformed SSE chunk in streaming response: {payload[:200]!r}"
-                    ) from e
-                yield ChatCompletionChunk.from_dict(chunk_data)
+            return Stream(self._client._open_stream(PATH, body))
+        return ChatCompletion.from_dict(self._client._request("POST", PATH, json=body))

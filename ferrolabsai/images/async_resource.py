@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 from ..types import ImageResponse
+from .resource import PATH, build_body
+
+if TYPE_CHECKING:
+    from ..client import AsyncFerroClient
 
 
 class AsyncImages:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: AsyncFerroClient) -> None:
         self._client = client
 
     async def generate(
@@ -23,19 +27,15 @@ class AsyncImages:
         style: str | None = None,
         user: str | None = None,
     ) -> ImageResponse:
-        body: dict[str, Any] = {"model": model, "prompt": prompt}
-        if n is not None:
-            body["n"] = n
-        if size is not None:
-            body["size"] = size
-        if quality is not None:
-            body["quality"] = quality
-        if response_format is not None:
-            body["response_format"] = response_format
-        if style is not None:
-            body["style"] = style
-        if user is not None:
-            body["user"] = user
-
-        data = await self._client._request("POST", "/v1/images/generations", json=body)
-        return ImageResponse.from_dict(data)
+        """See :meth:`ferrolabsai.images.resource.Images.generate`."""
+        body = build_body(
+            model,
+            prompt,
+            n=n,
+            size=size,
+            quality=quality,
+            response_format=response_format,
+            style=style,
+            user=user,
+        )
+        return ImageResponse.from_dict(await self._client._request("POST", PATH, json=body))

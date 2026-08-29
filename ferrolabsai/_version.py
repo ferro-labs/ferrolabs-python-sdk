@@ -1,10 +1,4 @@
-"""Package version helpers."""
+"""Package version. Keep in sync with ``[project].version`` in pyproject.toml
+(tests/test_client.py asserts they match)."""
 
-from __future__ import annotations
-
-try:
-    from importlib.metadata import version
-
-    __version__ = version("ferrolabsai")
-except Exception:
-    __version__ = "0.2.1"
+__version__ = "0.3.0"

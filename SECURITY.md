@@ -8,8 +8,8 @@ We currently ship security fixes for the latest minor release on PyPI. Older ver
 
 | Version | Supported |
 | ------- | --------- |
-| 0.1.x   | Yes       |
-| < 0.1   | No        |
+| 0.3.x   | Yes       |
+| < 0.3   | No        |
 
 ## Reporting a Vulnerability
 
@@ -59,7 +59,8 @@ If you are integrating `ferrolabsai` into your own application:
 - **Never hardcode API keys.** Load them from environment variables or a secret manager.
 - **Use HTTPS** for any non-localhost `base_url`.
 - **Rotate keys** periodically and immediately if you suspect exposure.
-- **Validate `trace_id` and cost fields** on responses if you store them — treat them as untrusted data at your application boundary.
+- **Validate `trace_id` and `provider`** on responses if you store them — treat them as untrusted data at your application boundary.
+- **Scope your keys.** Use `read_only` keys wherever an integration only reads `/admin/*`; the SDK surfaces scope violations as `FerroPermissionError`.
 - **Pin the SDK version** in production and review the changelog before upgrading.
 
 ## Questions

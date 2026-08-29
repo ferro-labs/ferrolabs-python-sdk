@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langchain-ferrolabsai"
-version = "0.1.0"
-description = "LangChain integration for Ferro Labs AI Gateway — chat, streaming, embeddings, and tool calling across 30+ LLM providers via a single OpenAI-compatible endpoint"
+version = "0.2.0"
+description = "LangChain integration for Ferro Labs AI Gateway — chat, streaming, embeddings, and tool calling across 30 LLM providers via a single OpenAI-compatible endpoint"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.9"
@@ -27,11 +27,12 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "ferrolabsai>=0.1.0",
+    "ferrolabsai>=0.3.0",
     "langchain-core>=0.3.0",
     "eval-type-backport>=0.2.0; python_version < '3.10'",
 ]

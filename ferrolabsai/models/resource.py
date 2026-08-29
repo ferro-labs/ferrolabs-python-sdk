@@ -1,16 +1,63 @@
-"""Model catalog resource — query 2,500+ models with pricing and capabilities."""
+"""Model catalog resource.
+
+The gateway serves exactly one catalog route, ``GET /v1/models``, and ignores
+its query string. ``GET /v1/models/{id}`` is *not* a native route — it falls
+through to the ``/v1/*`` pass-through and is forwarded upstream with the
+operator's credential — so every lookup and filter here is client-side over
+that one fetch.
+"""
 
 from __future__ import annotations
 
 import builtins
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from ..exceptions import FerroNotFoundError
 from ..types import ModelInfo
+
+if TYPE_CHECKING:
+    from ..client import FerroClient
+
+PATH = "/v1/models"
+
+
+def parse_catalog(data: dict[str, Any]) -> builtins.list[ModelInfo]:
+    return [ModelInfo.from_dict(m) for m in data.get("data", [])]
+
+
+def filter_models(
+    models: builtins.list[ModelInfo], provider: str | None, capability: str | None
+) -> builtins.list[ModelInfo]:
+    return [
+        m
+        for m in models
+        if (provider is None or m.owned_by == provider)
+        and (capability is None or capability in m.capabilities)
+    ]
+
+
+def find_model(models: builtins.list[ModelInfo], model_id: str) -> ModelInfo:
+    for m in models:
+        if m.id == model_id:
+            return m
+    raise FerroNotFoundError(
+        f"Model {model_id!r} is not in the gateway catalog",
+        status_code=404,
+        code="model_not_found",
+    )
+
+
+def search_models(models: builtins.list[ModelInfo], query: str) -> builtins.list[ModelInfo]:
+    needle = query.lower()
+    return [m for m in models if needle in m.id.lower()]
 
 
 class Models:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: FerroClient) -> None:
         self._client = client
+
+    def _fetch(self) -> builtins.list[ModelInfo]:
+        return parse_catalog(self._client._request("GET", PATH))
 
     def list(
         self,
@@ -19,59 +66,35 @@ class Models:
         capability: str | None = None,
     ) -> builtins.list[ModelInfo]:
         """
-        List all available models in the gateway's model catalog.
+        List the models the gateway can route to (``GET /v1/models``).
 
         Args:
-            provider: Filter by provider name. E.g. "openai", "anthropic", "groq".
-            capability: Filter by capability. E.g. "chat", "embeddings", "vision",
-                "function_calling".
+            provider: Keep only models whose ``owned_by`` matches, e.g. "openai".
+            capability: Keep only models whose ``capabilities`` include this, e.g.
+                "vision", "function_calling", "streaming", "reasoning".
 
-        Returns:
-            List of ModelInfo objects with pricing, context windows, and capabilities.
+        Filters are applied client-side — the gateway ignores query parameters.
 
         Example::
 
-            # List all models
             models = client.models.list()
-
-            # Only Anthropic models
             claude_models = client.models.list(provider="anthropic")
-
-            # Only models with vision capability
             vision_models = client.models.list(capability="vision")
         """
-        params: dict[str, Any] = {}
-        if provider is not None:
-            params["provider"] = provider
-        if capability is not None:
-            params["capability"] = capability
-
-        data = self._client._request("GET", "/v1/models", params=params or None)
-        raw_models = data.get("data", data) if isinstance(data, dict) else data
-        return [ModelInfo.from_dict(m) for m in raw_models]
+        return filter_models(self._fetch(), provider, capability)
 
     def retrieve(self, model_id: str) -> ModelInfo:
         """
-        Get details for a specific model by ID.
+        Look one model up in the catalog. Raises :class:`FerroNotFoundError`
+        (``code="model_not_found"``) locally; never calls ``/v1/models/{id}``.
 
         Example::
 
             info = client.models.retrieve("gpt-4o")
             print(f"Context window: {info.context_window}")
-            print(f"Input cost: ${info.input_cost_per_token:.8f}/token")
         """
-        data = self._client._request("GET", f"/v1/models/{model_id}")
-        return ModelInfo.from_dict(data)
+        return find_model(self._fetch(), model_id)
 
     def search(self, query: str) -> builtins.list[ModelInfo]:
-        """
-        Search the model catalog by name or description.
-
-        Example::
-
-            results = client.models.search("claude")
-        """
-        params = {"search": query}
-        data = self._client._request("GET", "/v1/models", params=params)
-        raw_models = data.get("data", data) if isinstance(data, dict) else data
-        return [ModelInfo.from_dict(m) for m in raw_models]
+        """Case-insensitive substring match on model id, e.g. ``search("claude")``."""
+        return search_models(self._fetch(), query)

@@ -2,19 +2,39 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal, overload
 
-import httpx
+from ..streaming import AsyncStream
+from ..types import ChatCompletion
+from .resource import PATH, build_body
 
-from ..exceptions import FerroStreamError
-from ..types import ChatCompletion, ChatCompletionChunk
+if TYPE_CHECKING:
+    from ..client import AsyncFerroClient
 
 
 class AsyncCompletions:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: AsyncFerroClient) -> None:
         self._client = client
+
+    @overload
+    async def create(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        stream: Literal[False] = False,
+        **kwargs: Any,
+    ) -> ChatCompletion: ...
+
+    @overload
+    async def create(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        stream: Literal[True],
+        **kwargs: Any,
+    ) -> AsyncStream: ...
 
     async def create(
         self,
@@ -24,71 +44,48 @@ class AsyncCompletions:
         stream: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
         top_p: float | None = None,
         frequency_penalty: float | None = None,
         presence_penalty: float | None = None,
         stop: str | list[str] | None = None,
+        seed: int | None = None,
         tools: list[dict[str, Any]] | None = None,
         tool_choice: Any | None = None,
-        template_id: str | None = None,
-        template_variables: dict[str, Any] | None = None,
-        route_tag: str | None = None,
+        parallel_tool_calls: bool | None = None,
+        response_format: dict[str, Any] | None = None,
+        stream_options: dict[str, Any] | None = None,
         user: str | None = None,
         **kwargs: Any,
-    ) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
-        body: dict[str, Any] = {"model": model, "messages": messages, "stream": stream}
+    ) -> ChatCompletion | AsyncStream:
+        """Async variant of :meth:`ferrolabsai.completions.resource.Completions.create`.
 
-        if temperature is not None:
-            body["temperature"] = temperature
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
-        if top_p is not None:
-            body["top_p"] = top_p
-        if frequency_penalty is not None:
-            body["frequency_penalty"] = frequency_penalty
-        if presence_penalty is not None:
-            body["presence_penalty"] = presence_penalty
-        if stop is not None:
-            body["stop"] = stop
-        if tools is not None:
-            body["tools"] = tools
-        if tool_choice is not None:
-            body["tool_choice"] = tool_choice
-        if user is not None:
-            body["user"] = user
-        if template_id is not None:
-            body["template_id"] = template_id
-        if template_variables is not None:
-            body["template_variables"] = template_variables
-        if route_tag is not None:
-            body["x_route_tag"] = route_tag
+        With ``stream=True`` the awaited result is an :class:`~ferrolabsai.AsyncStream`::
 
-        body.update(kwargs)
-
+            stream = await client.chat.completions.create(..., stream=True)
+            async for chunk in stream:
+                ...
+        """
+        body = build_body(
+            model,
+            messages,
+            stream,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            stop=stop,
+            seed=seed,
+            tools=tools,
+            tool_choice=tool_choice,
+            parallel_tool_calls=parallel_tool_calls,
+            response_format=response_format,
+            stream_options=stream_options,
+            user=user,
+            **kwargs,
+        )
         if stream:
-            return self._stream("/v1/chat/completions", body)
-
-        data = await self._client._request("POST", "/v1/chat/completions", json=body)
-        return ChatCompletion.from_dict(data)
-
-    async def _stream(self, path: str, body: dict[str, Any]) -> AsyncIterator[ChatCompletionChunk]:
-        async with self._client._http.stream("POST", path, json=body) as response:
-            try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                await response.aread()
-                from ..client import _raise_api_error
-
-                _raise_api_error(e)
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    payload = line[6:].strip()
-                    if payload == "[DONE]":
-                        return
-                    try:
-                        chunk_data = json.loads(payload)
-                    except json.JSONDecodeError as e:
-                        raise FerroStreamError(
-                            f"Malformed SSE chunk in streaming response: {payload[:200]!r}"
-                        ) from e
-                    yield ChatCompletionChunk.from_dict(chunk_data)
+            return AsyncStream(await self._client._open_stream(PATH, body))
+        return ChatCompletion.from_dict(await self._client._request("POST", PATH, json=body))
