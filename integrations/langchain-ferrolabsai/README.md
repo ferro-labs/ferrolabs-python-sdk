@@ -25,14 +25,14 @@ from langchain_core.messages import HumanMessage
 
 llm = FerroChatModel(
     model="gpt-4o",
-    base_url="http://localhost:8080",   # any Ferro Labs AI Gateway instance
+    base_url="http://localhost:8080",  # any Ferro Labs AI Gateway instance
     api_key="fgw_...",
 )
 
 response = llm.invoke([HumanMessage(content="Hello, world")])
 print(response.content)
-print(response.response_metadata["provider"])             # which provider answered
-print(response.response_metadata["trace_id"])             # gateway X-Request-ID
+print(response.response_metadata["provider"])  # which provider answered
+print(response.response_metadata["trace_id"])  # gateway X-Request-ID
 print(response.response_metadata.get("gateway_overhead_ms"))  # gateway's own overhead
 ```
 
@@ -46,7 +46,7 @@ name:
 
 ```python
 claude = FerroChatModel(model="claude-3-5-sonnet-20241022", base_url="...", api_key="...")
-gemini = FerroChatModel(model="gemini-2.5-flash",            base_url="...", api_key="...")
+gemini = FerroChatModel(model="gemini-2.5-flash", base_url="...", api_key="...")
 ```
 
 ### Streaming
@@ -70,10 +70,12 @@ async for chunk in llm.astream([HumanMessage(content="Tell me a story")]):
 ```python
 from langchain_core.tools import tool
 
+
 @tool
 def add(a: int, b: int) -> int:
     """Add two integers."""
     return a + b
+
 
 agent_llm = llm.bind_tools([add])
 response = agent_llm.invoke([HumanMessage(content="What is 4 + 7?")])
@@ -89,12 +91,14 @@ it works with every provider the gateway can translate it for (see
 ```python
 from pydantic import BaseModel
 
+
 class Answer(BaseModel):
     city: str
     population: int
 
+
 structured = llm.with_structured_output(Answer)
-print(structured.invoke("Largest city in France?"))   # Answer(city='Paris', population=...)
+print(structured.invoke("Largest city in France?"))  # Answer(city='Paris', population=...)
 
 # include_raw=True → {"raw": AIMessage, "parsed": Answer | None, "parsing_error": ...}
 ```

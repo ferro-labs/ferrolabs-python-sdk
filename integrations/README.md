@@ -23,7 +23,9 @@ python -m build
 twine upload dist/*
 ```
 
-CI workflows for each package live under `.github/workflows/publish-<package>.yml` (to be added).
+CI workflows for each package live under `.github/workflows/publish-<package>.yml`
+(`publish-langchain-ferrolabsai.yml`, `publish-llama-index-llms-ferrolabsai.yml`): they run the
+sub-package's test matrix on PRs touching its folder and publish via Trusted Publishing on a matching tag.
 
 ## Upstream mirroring
 

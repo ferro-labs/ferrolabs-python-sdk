@@ -1,18 +1,18 @@
 # Architecture — ferrolabsai Python SDK
 
-This document describes the internal architecture of the `ferrolabsai` SDK, how the pieces fit together, and the design decisions behind them.
+This document describes the internal architecture of the `ferrolabsai` SDK, how the pieces fit together, and the design decisions behind them. It is written against **ai-gateway v1.4.5**; the contract suite (`tests/contract/`) keeps it honest.
 
 ---
 
 ## High-Level Overview
 
-The SDK acts as a thin HTTP client that sits between application code and a running [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance. It provides an OpenAI-compatible surface so users can switch from `openai.OpenAI` to `ferrolabsai.FerroClient` with minimal code changes, while gaining access to 29+ LLM providers, smart routing, and gateway management APIs.
+The SDK acts as a thin HTTP client that sits between application code and a running [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance. It provides an OpenAI-compatible surface so users can switch from `openai.OpenAI` to `ferrolabsai.FerroClient` with minimal code changes, while gaining access to 30 LLM providers, smart routing, and gateway management APIs.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Application Code                         │
 │                                                             │
-│  client.chat.completions.create(model="gpt-4o", ...)       │
+│  client.chat.completions.create(model="gpt-4o", ...)        │
 │  client.embeddings.create(model="text-embedding-3-small")   │
 │  client.admin.config.update({...})                          │
 └──────────────────────────┬──────────────────────────────────┘
@@ -25,26 +25,30 @@ The SDK acts as a thin HTTP client that sits between application code and a runn
               │    ├── embeddings           │
               │    ├── images               │
               │    ├── models               │
+              │    ├── responses            │
+              │    ├── moderations          │
+              │    ├── rerank() / probes    │
               │    └── admin                │
               │         ├── keys            │
               │         ├── config          │
               │         ├── logs            │
               │         ├── providers       │
-              │         └── plugins         │
+              │         ├── plugins         │
+              │         └── audit           │
               └────────────┬────────────────┘
                            │  HTTP (httpx)
               ┌────────────▼────────────────┐
               │   Ferro Labs AI Gateway     │
-              │       /v1/*  /admin/*       │
+              │  /v1/*  /admin/*  /health   │
               │                             │
               │  Routing · Fallback · Cache │
-              │  Rate limiting · Logging    │
+              │  Budgets · Logging · OTel   │
               └────────────┬────────────────┘
                            │
            ┌───────────────┼───────────────┐
            │               │               │
       ┌────▼────┐    ┌────▼─────┐   ┌────▼────┐
-      │ OpenAI  │    │Anthropic │   │  Groq   │  ... 29+ providers
+      │ OpenAI  │    │Anthropic │   │  Groq   │  ... 30 providers
       └─────────┘    └──────────┘   └─────────┘
 ```
 
@@ -55,24 +59,23 @@ The SDK acts as a thin HTTP client that sits between application code and a runn
 ```
 ferrolabsai/
 ├── __init__.py               # Public API surface & __all__
-├── client.py                 # FerroClient, AsyncFerroClient, _raise_api_error
-├── types.py                  # All dataclass response models
-├── exceptions/
-│   └── __init__.py           # FerroError hierarchy
-├── completions/
-│   ├── resource.py           # Completions (sync + streaming)
-│   └── async_resource.py     # AsyncCompletions (async + streaming)
-├── embeddings/
-│   ├── resource.py           # Embeddings (sync)
-│   └── async_resource.py     # AsyncEmbeddings
-├── images/
-│   └── resource.py           # Images (sync)
-├── models/
-│   └── resource.py           # Models catalog (sync)
-└── admin/
-    └── resource.py           # Admin, _KeysResource, _ConfigResource,
-                              # _LogsResource, _ProvidersResource, _PluginsResource
+├── _version.py               # __version__ constant (kept in sync with pyproject.toml)
+├── client.py                 # FerroClient, AsyncFerroClient, retry policy, _raise_api_error
+├── streaming.py              # Stream / AsyncStream SSE wrappers
+├── types.py                  # Dataclass response models
+├── types_responses.py        # Response (Responses API), re-exported from types
+├── exceptions/__init__.py    # FerroError hierarchy
+├── completions/              # chat.completions (resource.py + async_resource.py)
+├── embeddings/               # embeddings
+├── images/                   # images.generate
+├── models/                   # model catalog (client-side lookup/filter)
+├── responses/                # Responses API
+├── moderations/              # moderations
+└── admin/                    # Admin, _KeysResource, _ConfigResource, _LogsResource,
+                              # _ProvidersResource, _PluginsResource, _AuditResource
 ```
+
+Every resource sub-package has a sync `resource.py` and an `async_resource.py`; the async module imports the request-body builders and path constants from the sync one so the wire format is defined once.
 
 ---
 
@@ -89,83 +92,90 @@ class ChatCompletion:
     model: str
     choices: list[Choice]
     usage: Usage | None = None
-    # Ferro extras
-    trace_id: str | None = None
-    provider: str | None = None
-    latency_ms: int | None = None
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> ChatCompletion:
-        ...
+    # Gateway extensions
+    trace_id: str | None = None            # X-Request-ID header
+    provider: str | None = None            # body `provider` / X-Gateway-Provider header
+    gateway_overhead_ms: float | None = None  # X-Gateway-Overhead-Ms header
+    provider_metadata: dict[str, Any] | None = None
 ```
 
 ### 2. Resource Pattern
 
-Each API surface (completions, embeddings, images, models, admin) is a **resource class** that:
-
-1. Receives the client instance via `__init__(self, client)`.
-2. Calls `self._client._request(method, path, ...)` for all HTTP traffic.
-3. Returns typed dataclass models.
-
-This mirrors the OpenAI SDK's structure (`client.chat.completions`, `client.embeddings`, etc.) and keeps individual files focused and small.
+Each API surface is a **resource class** that receives the client via `__init__(self, client: FerroClient)` (typed under `TYPE_CHECKING` to avoid an import cycle), calls `self._client._request(method, path, ...)` for HTTP, and returns typed dataclasses (or the raw dict where the gateway's shape is loosely structured — admin lists, rerank, moderations).
 
 ```
 FerroClient
-  ├── _http: httpx.Client               # connection pool + auth headers
-  ├── _request(method, path, ...)        # central HTTP with retry logic
+  ├── _http: httpx.Client                 # connection pool + auth headers
+  ├── _request(method, path, ...)         # central HTTP with retry + error mapping
+  ├── _open_stream(path, body)            # SSE: no retry, returns the live response
+  ├── health() / ready() / live()         # → /health, /readyz, /livez
+  ├── capabilities()                      # → /v1/capabilities
+  ├── rerank(...)                         # → /v1/rerank
   │
-  ├── chat: _ChatNamespace
-  │     └── completions: Completions     # → /v1/chat/completions
-  ├── embeddings: Embeddings             # → /v1/embeddings
-  ├── images: Images                     # → /v1/images/generations
-  ├── models: Models                     # → /v1/models
-  └── admin: Admin                       # → /admin/*
-        ├── keys: _KeysResource          # → /admin/keys
-        ├── config: _ConfigResource      # → /admin/config
-        ├── logs: _LogsResource          # → /admin/logs
-        ├── providers: _ProvidersResource # → /admin/providers
-        └── plugins: _PluginsResource    # → /admin/plugins
+  ├── chat.completions: Completions       # → /v1/chat/completions
+  ├── embeddings: Embeddings              # → /v1/embeddings
+  ├── images: Images                      # → /v1/images/generations
+  ├── models: Models                      # → /v1/models (client-side filter/lookup)
+  ├── responses: Responses                # → /v1/responses[/{id}]
+  ├── moderations: Moderations            # → /v1/moderations
+  └── admin: Admin                        # → /admin/*
+        ├── keys / config / logs / providers / plugins / audit
 ```
 
 ### 3. Single HTTP Entry Point
 
-All HTTP traffic flows through `FerroClient._request()` (sync) or `AsyncFerroClient._request()` (async). This centralizes:
+All non-streaming traffic flows through `_request()` (sync) or `AsyncFerroClient._request()`. It centralizes:
 
-- **Authentication** — `Authorization: Bearer {api_key}` header injected by `httpx.Client`.
-- **Retry logic** — retries on `httpx.ConnectError` and `httpx.TimeoutException` only (not HTTP errors).
-- **Error mapping** — `_raise_api_error()` translates HTTP status codes into typed exceptions.
-- **Response parsing** — JSON deserialization, 204 handling.
+- **Authentication** — `Authorization: Bearer {api_key}` header on the `httpx` client.
+- **Retry policy** — see below.
+- **Error mapping** — `_raise_api_error()` translates the gateway's error envelope into typed exceptions.
+- **Response parsing** — JSON, 204 handling, and header metadata injection for inference paths only (`/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/images/generations`, `/v1/responses`, `/v1/rerank`, `/v1/moderations`). Catalog, probe, and admin bodies are returned untouched.
+- **Probe semantics** — `/health` and `/readyz` answer `503` with a JSON body when degraded; `_request(..., allow=(503,))` returns that body instead of raising.
 
-Streaming is the exception: `_stream_request()` returns an iterator of raw SSE lines, and the resource class handles SSE parsing (`data: ...` / `[DONE]`).
+### 4. Retry Policy
 
-### 4. Typed Exception Hierarchy
+Shared by sync and async; streaming requests are never retried.
+
+| Trigger | Retried? |
+|---|---|
+| `httpx.ConnectError`, `httpx.TimeoutException` | yes |
+| HTTP `408`, `429`, `5xx` | yes |
+| any other `4xx` | no — raised immediately |
+| streaming (`_open_stream`) | never |
+
+Delay before retry *n*: `Retry-After` seconds when present (capped at 30 s — the same cap the gateway applies to its own upstream retries), else `uniform(0, min(0.5 · 2^(n-1), 8))` (full jitter). `max_retries` defaults to 2 and is validated at construction.
+
+### 5. Typed Exception Hierarchy
 
 ```
 FerroError (base)
-├── FerroAPIError (any non-2xx HTTP response)
-│   ├── FerroAuthError        (401)
-│   ├── FerroRateLimitError   (429)
-│   ├── FerroNotFoundError    (404)
-│   └── FerroServerError      (5xx)
-├── FerroConnectionError      (network / timeout — retried first)
-└── FerroStreamError          (SSE parse failure)
+├── FerroAPIError (any non-2xx HTTP response; .status_code .code .message .request_id)
+│   ├── FerroAuthError            (401)
+│   ├── FerroBudgetExceededError  (402 insufficient_quota)
+│   ├── FerroPermissionError      (403 insufficient_scope)
+│   ├── FerroNotFoundError        (404 model_not_found / not_found — also raised locally by models.retrieve)
+│   ├── FerroRateLimitError       (429; .retry_after from the Retry-After header)
+│   └── FerroServerError          (5xx)
+├── FerroConnectionError          (network / timeout after all retries)
+└── FerroStreamError              (malformed SSE frame, or a gateway error frame; .code)
 ```
 
-`FerroAPIError` carries `.status_code`, `.code`, `.message`, and `.request_id`. Connection and stream errors inherit from `FerroError` directly since they have no HTTP status.
+`.request_id` is the `X-Request-ID` of the failed response (falls back to `request_id` / `trace_id` in the body).
 
-### 5. Sync + Async Duality
+### 6. Streaming
 
-The SDK provides both `FerroClient` (synchronous, `httpx.Client`) and `AsyncFerroClient` (asynchronous, `httpx.AsyncClient`).
+`chat.completions.create(stream=True)` returns a `Stream` (async: `AsyncStream`) rather than a bare generator so the HTTP response — and therefore its headers — stays reachable:
 
-- Sync resources live in `resource.py` within each sub-package.
-- Async resources live in `async_resource.py`.
-- Resources that don't yet have an async variant (images, models, admin) only have `resource.py`.
+- `stream.trace_id` (`X-Request-ID`) and `stream.provider` (`X-Gateway-Provider`, not set on SSE as of v1.4.5) are available before the first chunk and copied onto every `ChatCompletionChunk`.
+- Frames are parsed line-wise: `data: {...}` → `ChatCompletionChunk`; `data: [DONE]` ends the stream; `{"error": {...}}` → `FerroStreamError(code=...)`; anything unparsable → `FerroStreamError("Malformed SSE chunk ...")`.
+- `usage` appears on the terminal chunk. The gateway always asks the upstream for usage (for metering) and forwards that chunk unless the client sent `stream_options={"include_usage": False}`.
+- The response is closed when the stream is exhausted, on error, on `close()`, or when the `with` block exits.
 
-The async client currently supports completions and embeddings. Other resources can be added following the same pattern.
+### 7. Sync + Async Duality
 
-### 6. OpenAI Compatibility Layer
+`FerroClient` (`httpx.Client`) and `AsyncFerroClient` (`httpx.AsyncClient`) expose the same namespaces; every resource has an async twin. The async client's `create(stream=True)` is awaited once (opening the stream, so HTTP errors surface there) and returns an `AsyncStream`.
 
-The SDK intentionally mirrors OpenAI SDK ergonomics:
+### 8. OpenAI Compatibility Layer
 
 | OpenAI                            | ferrolabsai                                |
 | --------------------------------- | ------------------------------------------ |
@@ -173,6 +183,8 @@ The SDK intentionally mirrors OpenAI SDK ergonomics:
 | `client.chat.completions.create`  | `client.chat.completions.create`           |
 | `client.embeddings.create`        | `client.embeddings.create`                 |
 | `client.images.generate`          | `client.images.generate`                   |
+| `client.models.list / retrieve`   | `client.models.list / retrieve` (client-side) |
+| `client.responses.create`         | `client.responses.create`                  |
 | `OPENAI_API_KEY`                  | `FERRO_API_KEY` (falls back to `OPENAI_API_KEY`) |
 
 The `_ChatNamespace` class exists solely to provide the `client.chat.completions` accessor, matching OpenAI's nested layout.
@@ -185,109 +197,90 @@ The `_ChatNamespace` class exists solely to provide the `client.chat.completions
 1. User calls:  client.chat.completions.create(model="gpt-4o", messages=[...])
                    │
 2. Completions.create()
-   ├── Builds request body (model, messages, temperature, Ferro extras...)
-   ├── Non-streaming: calls self._client._request("POST", "/v1/chat/completions", json=body)
-   └── Streaming: calls self._client._stream_request(path, body) → yields SSE lines
+   ├── build_body(): model, messages, stream + non-None optionals + **kwargs
+   ├── Non-streaming: self._client._request("POST", "/v1/chat/completions", json=body)
+   └── Streaming: Stream(self._client._open_stream(path, body))
                    │
 3. FerroClient._request()
-   ├── Builds httpx.Request with auth headers
    ├── Sends via self._http (httpx.Client)
-   ├── On success: returns parsed JSON dict
-   ├── On HTTP error: _raise_api_error() → typed FerroXxxError
-   └── On connection/timeout error: retries up to max_retries, then FerroConnectionError
+   ├── 2xx: parse JSON; inference path → merge X-Request-ID / X-Gateway-Provider /
+   │        X-Gateway-Overhead-Ms into the dict (body fields win)
+   ├── 408/429/5xx or connect/timeout: sleep (Retry-After or jittered backoff), retry
+   └── Other non-2xx or retries exhausted: _raise_api_error() → typed FerroXxxError
                    │
-4. Completions.create() (continued)
-   ├── Non-streaming: ChatCompletion.from_dict(data) → typed dataclass
-   └── Streaming: parses "data: {json}" lines → yields ChatCompletionChunk
+4. Completions.create() → ChatCompletion.from_dict(data)
                    │
 5. User receives ChatCompletion with:
-   ├── .content              → shortcut to first choice
-   ├── .provider             → which backend handled it (Ferro extra)
-   ├── .trace_id             → correlation ID for gateway logs
-   ├── .latency_ms           → end-to-end gateway latency
-   └── .usage.cost_usd       → computed cost in USD
+   ├── .content               → shortcut to first choice
+   ├── .provider              → which backend answered (body `provider`)
+   ├── .trace_id              → X-Request-ID; joins with admin.logs / OTel
+   ├── .gateway_overhead_ms   → gateway's own processing time
+   ├── .provider_metadata     → provider-specific extras
+   └── .usage                 → tokens (+ reasoning / cache counters when reported)
 ```
 
 ---
 
-## Streaming Architecture
+## Gateway Contract
 
-The SDK supports server-sent events (SSE) for real-time token streaming.
+### Response headers read by the SDK
 
-### Sync Streaming
-```python
-for chunk in client.chat.completions.create(model="gpt-4o", messages=[...], stream=True):
-    print(chunk.choices[0].delta.content, end="")
-```
+| Header | Set by the gateway on | SDK field |
+|---|---|---|
+| `X-Request-ID` | every response (32 lowercase hex, equals the OTel trace id) | `trace_id`, `Stream.trace_id`, chunk `trace_id`, `FerroAPIError.request_id` |
+| `X-Gateway-Provider` | `/v1/responses`, `/v1/*` pass-through, legacy `/v1/completions` — **not** non-streaming chat (body `provider` instead), **not** SSE | `provider` (only when the body has none) |
+| `X-Gateway-Overhead-Ms` | non-streaming `/v1/chat/completions`, when > 0 | `gateway_overhead_ms` |
+| `Retry-After` | every gateway-originated `429` (`"1"`), upstream `429` (upstream value) | retry delay; `FerroRateLimitError.retry_after` |
 
-Internally:
-1. `Completions.create(stream=True)` calls `self._stream()`.
-2. `_stream()` calls `FerroClient._stream_request()` which opens a streaming `httpx` response.
-3. Lines are iterated via `response.iter_lines()`.
-4. Each `data: {...}` line is parsed into a `ChatCompletionChunk` and yielded.
-5. `data: [DONE]` terminates the iterator.
+No `X-Ferro-*`, cost, or cache-hit header exists at any gateway version; the SDK reads none.
 
-### Async Streaming
-```python
-async for chunk in await client.chat.completions.create(model="gpt-4o", messages=[...], stream=True):
-    print(chunk.choices[0].delta.content, end="")
-```
+### Body extensions read by the SDK
 
-Uses `response.aiter_lines()` within an `async with self._client._http.stream(...)` context.
+| Field | Where | SDK field |
+|---|---|---|
+| `provider`, `provider_metadata` | non-streaming chat completion | `ChatCompletion.provider` / `.provider_metadata` |
+| `usage.reasoning_tokens`, `cache_read_tokens`, `cache_write_tokens` | chat usage (omitted when zero) | `Usage.*` |
+| `message.reasoning_content`, `delta.reasoning_content` | chat message / stream delta | `ChatMessage.reasoning_content`, `StreamDelta.reasoning_content` |
+| `{"error": {message, type, code}}` | every non-2xx and mid-stream error frame | exception `.message` / `.code` |
+
+### Model catalog
+
+`GET /v1/models` returns `EnrichedModelInfo` (`ai-gateway/internal/handler/models.go`): `id`, `object`, `created`, `owned_by`, plus `mode`, `context_window`, `max_output_tokens`, `capabilities[]`, `status`, `deprecated` when the catalog knows the model. Query parameters are ignored and `GET /v1/models/{id}` is not a native route (it would fall through to the `/v1/*` pass-through with the operator's credential), so `list(provider=, capability=)`, `search()`, and `retrieve()` all work client-side over one fetch.
 
 ---
 
 ## Admin API Surface
 
-The admin namespace exposes gateway management operations that map 1:1 to the OSS gateway's `/admin/*` HTTP routes (defined in `ai-gateway/internal/admin/handlers.go`).
+The admin namespace maps 1:1 to the gateway's `/admin/*` routes (`ai-gateway/internal/admin/handlers/server.go`, `Handlers.Routes`).
 
 | SDK Method                              | HTTP Route                          | Scope      |
 | --------------------------------------- | ----------------------------------- | ---------- |
-| `admin.dashboard()`                     | `GET /admin/dashboard`              | read-only  |
-| `admin.health()`                        | `GET /admin/health`                 | read-only  |
-| `admin.keys.list()`                     | `GET /admin/keys`                   | read-only  |
-| `admin.keys.retrieve(id)`              | `GET /admin/keys/{id}`              | read-only  |
-| `admin.keys.create(name=...)`          | `POST /admin/keys`                  | admin      |
-| `admin.keys.update(id, ...)`           | `PUT /admin/keys/{id}`              | admin      |
-| `admin.keys.delete(id)`                | `DELETE /admin/keys/{id}`           | admin      |
-| `admin.keys.revoke(id)`                | `POST /admin/keys/{id}/revoke`      | admin      |
-| `admin.keys.rotate(id)`                | `POST /admin/keys/{id}/rotate`      | admin      |
-| `admin.keys.usage(limit=...)`          | `GET /admin/keys/usage`             | read-only  |
-| `admin.config.get()`                    | `GET /admin/config`                 | read-only  |
-| `admin.config.create(config)`          | `POST /admin/config`                | admin      |
-| `admin.config.update(config)`          | `PUT /admin/config`                 | admin      |
-| `admin.config.delete()`                | `DELETE /admin/config`              | admin      |
-| `admin.config.history()`               | `GET /admin/config/history`         | read-only  |
-| `admin.config.rollback(version)`       | `POST /admin/config/rollback/{v}`   | admin      |
-| `admin.logs.list(limit=...)`           | `GET /admin/logs`                   | read-only  |
-| `admin.logs.stats()`                    | `GET /admin/logs/stats`             | read-only  |
+| `admin.dashboard()`                     | `GET /admin/dashboard`              | read_only  |
+| `admin.health()`                        | `GET /admin/health`                 | read_only  |
+| `admin.keys.list()`                     | `GET /admin/keys`                   | read_only  |
+| `admin.keys.retrieve(id)`               | `GET /admin/keys/{id}`              | read_only  |
+| `admin.keys.create(name=...)`           | `POST /admin/keys`                  | admin      |
+| `admin.keys.update(id, ...)`            | `PUT /admin/keys/{id}`              | admin      |
+| `admin.keys.delete(id)`                 | `DELETE /admin/keys/{id}`           | admin      |
+| `admin.keys.revoke(id)`                 | `POST /admin/keys/{id}/revoke`      | admin      |
+| `admin.keys.rotate(id)`                 | `POST /admin/keys/{id}/rotate`      | admin      |
+| `admin.keys.usage(limit=...)`           | `GET /admin/keys/usage`             | read_only  |
+| `admin.config.get()`                    | `GET /admin/config`                 | read_only  |
+| `admin.config.create(config)`           | `POST /admin/config`                | admin      |
+| `admin.config.update(config)`           | `PUT /admin/config`                 | admin      |
+| `admin.config.delete()`                 | `DELETE /admin/config`              | admin      |
+| `admin.config.history()`                | `GET /admin/config/history`         | read_only  |
+| `admin.config.rollback(version)`        | `POST /admin/config/rollback/{v}`   | admin      |
+| `admin.logs.list(stage=, api_key_id=, ...)` | `GET /admin/logs`               | read_only  |
+| `admin.logs.stats(buckets=)`            | `GET /admin/logs/stats`             | read_only  |
 | `admin.logs.delete(before=...)`         | `DELETE /admin/logs`                | admin      |
-| `admin.providers.list()`               | `GET /admin/providers`              | read-only  |
-| `admin.plugins.list()`                  | `GET /admin/plugins`                | read-only  |
+| `admin.providers.list()`                | `GET /admin/providers`              | read_only  |
+| `admin.providers.catalog()`             | `GET /admin/providers/catalog`      | read_only  |
+| `admin.plugins.list()`                  | `GET /admin/plugins`                | read_only  |
+| `admin.plugins.catalog()`               | `GET /admin/plugins/catalog`        | read_only  |
+| `admin.audit.list(action=, actor_id=, outcome=, since=)` | `GET /admin/audit` | read_only |
 
----
-
-## Ferro-Specific Extensions
-
-The SDK passes through fields that the standard OpenAI API doesn't know about. These are safe — any OpenAI-compatible backend that doesn't recognize them silently ignores them.
-
-### Request Extensions (on `chat.completions.create`)
-
-| Parameter            | Wire Field            | Purpose                                                            |
-| -------------------- | --------------------- | ------------------------------------------------------------------ |
-| `template_id`        | `template_id`         | Render a server-side prompt template (Go `text/template` syntax)   |
-| `template_variables` | `template_variables`  | Variables injected into the template                               |
-| `route_tag`          | `x_route_tag`         | Override the routing strategy for this single request              |
-
-### Response Extensions (on `ChatCompletion`)
-
-| Field         | Source                                      | Purpose                              |
-| ------------- | ------------------------------------------- | ------------------------------------ |
-| `trace_id`    | `x_ferro_trace_id` or `trace_id` in body    | Correlates with gateway logs         |
-| `provider`    | `x_ferro_provider` or `provider` in body    | Which upstream served the request    |
-| `latency_ms`  | `x_ferro_latency_ms` in body                | End-to-end gateway latency           |
-| `cost_usd`    | `usage.cost_usd` in body                    | Computed cost in USD                 |
-| `cache_hit`   | `usage.cache_hit` in body                   | Whether semantic cache was used      |
+Not wrapped on purpose: `/admin/session(s)` (dashboard-only), `/metrics`, `/debug/vars`. Gateway rules worth knowing: the last admin key record cannot be revoked or deleted (`409`), `read_only` writes get `403 insufficient_scope`, and `GET /admin/config` masks secrets so it does not round-trip into `PUT`.
 
 ---
 
@@ -297,18 +290,21 @@ The SDK passes through fields that the standard OpenAI API doesn't know about. T
 HTTP response received
   │
   ├── 2xx → parse JSON → return dict / dataclass
+  ├── 503 on /health, /readyz → return the JSON body (degraded is an answer)
+  │
+  ├── 408 / 429 / 5xx → retry (Retry-After or jittered backoff) … then map as below
   │
   ├── 401 → FerroAuthError
+  ├── 402 → FerroBudgetExceededError
+  ├── 403 → FerroPermissionError
   ├── 404 → FerroNotFoundError
-  ├── 429 → FerroRateLimitError
+  ├── 429 → FerroRateLimitError(retry_after=...)
   ├── 5xx → FerroServerError
-  ├── other 4xx → FerroAPIError
+  ├── other 4xx (400, 405, 409, 413, 501, …) → FerroAPIError(code=...)
   │
-  ├── ConnectError → retry up to max_retries → FerroConnectionError
-  └── TimeoutException → retry up to max_retries → FerroConnectionError
+  ├── ConnectError / TimeoutException → retry up to max_retries → FerroConnectionError
+  └── SSE: HTTP error before the first byte → same mapping; error frame → FerroStreamError
 ```
-
-HTTP errors (4xx/5xx) are **never retried** — they propagate immediately so the caller can handle them. Only connection and timeout errors trigger the retry loop.
 
 ---
 
@@ -319,18 +315,13 @@ FerroClient(
     api_key="...",            # or FERRO_API_KEY / OPENAI_API_KEY env var
     base_url="...",           # or FERRO_BASE_URL env var (default: http://localhost:8080)
     timeout=120.0,            # httpx timeout in seconds
-    max_retries=2,            # connection error retries (default: 2)
+    max_retries=2,            # retries for connect/timeout/408/429/5xx (default: 2)
     default_headers={...},    # merged into every request
     http_client=my_httpx,     # bring your own httpx.Client
 )
 ```
 
-Auth resolution order:
-1. `api_key` parameter
-2. `FERRO_API_KEY` environment variable
-3. `OPENAI_API_KEY` environment variable (migration fallback)
-
-If none is found, `FerroAuthError` is raised at construction time.
+Auth resolution order: `api_key` parameter → `FERRO_API_KEY` → `OPENAI_API_KEY` (migration fallback). If none is found, `FerroAuthError` is raised at construction time.
 
 ---
 
@@ -348,13 +339,10 @@ Dev only:
   └── ruff ≥ 0.1.0
 ```
 
-The SDK intentionally keeps zero additional runtime dependencies to minimize install footprint and avoid version conflicts in user projects.
-
 ---
 
 ## Testing Strategy
 
-- All tests live in `tests/test_sdk.py`.
-- HTTP is fully mocked via `pytest-httpx` — no network access, no running gateway.
+- **Unit** (`tests/test_client.py`, `test_chat.py`, `test_resources.py`, `test_admin.py`): HTTP fully mocked via `pytest-httpx`; covers construction, auth resolution, error mapping, the retry policy, header metadata, streaming (happy path, usage chunk, error frames), every resource and admin route, sync and async.
+- **Contract** (`tests/contract/`): runs only when `FERRO_CONTRACT_BASE_URL` is set. `scripts/with-gateway.sh` builds `ferrogw` from an ai-gateway checkout, starts `tests/contract/stub_upstream.py` as a fake OpenAI, points the gateway at it, and asserts the header/body/error contract described above against the real server. CI runs it against the pinned gateway tag (required) and `main` (advisory).
 - Async tests use `pytest-asyncio` with `asyncio_mode = "auto"`.
-- Tests cover: client construction, auth resolution, error mapping, retries, response parsing, streaming, admin CRUD, and resource wiring.

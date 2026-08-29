@@ -13,13 +13,13 @@
   </p>
 </div>
 
-Route LLM requests across **29 providers and 2,500+ models** through a single OpenAI-compatible API.
+Route LLM requests across **30 providers and 2,500+ models** through a single OpenAI-compatible API.
 Zero code changes to migrate from `openai`. Built on [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway).
 
 ```python
 from ferrolabsai import FerroClient
 
-client = FerroClient(api_key="sk-ferro-...")
+client = FerroClient(api_key="fgw_...")
 
 # Route to OpenAI
 response = client.chat.completions.create(
@@ -34,19 +34,21 @@ response = client.chat.completions.create(
 )
 
 print(response.content)
-print(f"Handled by: {response.provider} in {response.latency_ms}ms")
+print(f"Handled by {response.provider}, trace {response.trace_id}")
 ```
+
+**Compatibility:** `ferrolabsai 0.3.x` ↔ `ai-gateway ≥ v1.4.0`. Every claim in this README is executed against a real `ai-gateway v1.4.5` by the [contract suite](#contract-tests) on each CI run.
 
 ---
 
 ## Why ferrolabsai
 
-- **One API for 29 providers.** OpenAI, Anthropic, Google, Groq, Together, Mistral, Cohere, Bedrock, Vertex, Azure, and more — all via a single client.
+- **One API for 30 providers.** OpenAI, Anthropic, Google, Groq, Together, Mistral, Cohere, Bedrock, Vertex, Azure, and more — all via a single client.
 - **Drop-in OpenAI replacement.** The surface matches the OpenAI SDK. Change two lines and keep all your existing code.
-- **Smart routing built in.** Fallback chains, weighted load balancing, and per-request overrides via `route_tag`.
-- **Cost and provider visibility.** Every response includes `provider`, `cost_usd`, `latency_ms`, and `trace_id` — no extra calls.
+- **Smart routing built in.** Fallback chains, weighted load balancing, conditional and cost-optimized routing — configured on the gateway, invisible to callers.
+- **Provider and trace visibility.** Every inference response carries `provider` and `trace_id` (the gateway's `X-Request-ID`) — no extra calls.
 - **Self-hostable.** Point `base_url` at any [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance and go.
-- **Typed and async-first.** Dataclass response models, full `AsyncFerroClient`, streaming in both modes.
+- **Typed and async-first.** Dataclass response models, full `AsyncFerroClient`, streaming in both modes, zero dependencies beyond `httpx`.
 
 ---
 
@@ -55,7 +57,7 @@ print(f"Handled by: {response.provider} in {response.latency_ms}ms")
 - [Installation](#installation)
 - [Quickstart](#quickstart)
 - [Migrate from OpenAI](#migrate-from-openai)
-- [Framework integrations](#framework-integrations)
+- [Framework adapters](#framework-adapters)
 - [Usage](#usage)
   - [Chat completions](#chat-completions)
   - [Streaming](#streaming)
@@ -63,7 +65,8 @@ print(f"Handled by: {response.provider} in {response.latency_ms}ms")
   - [Embeddings](#embeddings)
   - [Image generation](#image-generation)
   - [Model catalog](#model-catalog)
-  - [Ferro extras: templates & route tags](#ferro-extras-templates--route-tags)
+  - [Responses API, rerank, moderations](#responses-api-rerank-moderations)
+  - [Gateway probes and capabilities](#gateway-probes-and-capabilities)
 - [Observability](#observability)
 - [Configuration](#configuration)
 - [Error handling](#error-handling)
@@ -85,13 +88,13 @@ Requires **Python 3.9+**. The only runtime dependency is [`httpx`](https://www.p
 
 ## Quickstart
 
-You'll need a running [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance and an API key issued by it.
+You'll need a running [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance and an API key issued by it (`fgw_...`, or the gateway's `MASTER_KEY`).
 
 ```python
 from ferrolabsai import FerroClient
 
 client = FerroClient(
-    api_key="sk-ferro-your-key",
+    api_key="fgw_your-key",
     base_url="http://localhost:8080",  # your gateway address
 )
 ```
@@ -99,7 +102,7 @@ client = FerroClient(
 ### Environment variables
 
 ```bash
-export FERRO_API_KEY="sk-ferro-your-key"
+export FERRO_API_KEY="fgw_your-key"
 export FERRO_BASE_URL="http://localhost:8080"
 ```
 
@@ -120,52 +123,30 @@ client = OpenAI(api_key="sk-openai-...")
 
 # After — all your existing code works unchanged
 from ferrolabsai import FerroClient
-client = FerroClient(api_key="sk-ferro-...")
+client = FerroClient(api_key="fgw_...")
 ```
 
 Every `client.chat.completions.create(...)` call, every streaming loop, every tool call — identical API surface. Ferro routes to the right provider based on the model name.
 
 ---
 
-## Framework integrations
+## Framework adapters
 
-Ferro's gateway exposes an OpenAI-compatible HTTP API at `/v1/*`, so anything that speaks OpenAI works. Point the base URL at your gateway and keep your existing framework.
+The gateway exposes an OpenAI-compatible HTTP API at `/v1/*`, so `langchain_openai`, `llama_index.llms.openai`, and the Vercel AI SDK all work by pointing their base URL at your gateway. The first-party adapters go further and surface the gateway's `trace_id` / `provider` and typed errors:
 
-### LangChain
-
-```python
-from langchain_openai import ChatOpenAI
-
-llm = ChatOpenAI(
-    api_key="sk-ferro-your-key",
-    base_url="http://localhost:8080/v1",
-    model="gpt-4o",
-)
-response = llm.invoke("Hello from LangChain via Ferro")
-```
-
-### LlamaIndex
+| Package | What it wraps | Status |
+|---|---|---|
+| [`langchain-ferrolabsai`](integrations/langchain-ferrolabsai/) | `FerroChatModel` (sync/async, streaming, tools, `with_structured_output`), `FerroEmbeddings`, `FerroLLM` | **0.2.0** — on ferrolabsai 0.3 |
+| [`llama-index-llms-ferrolabsai`](integrations/llama-index-llms-ferrolabsai/) | LlamaIndex `LLM` | placeholder (0.0.1) |
 
 ```python
-from llama_index.llms.openai import OpenAI
+from langchain_ferrolabsai import FerroChatModel
 
-llm = OpenAI(
-    api_key="sk-ferro-your-key",
-    api_base="http://localhost:8080/v1",
-    model="gpt-4o",
-)
+llm = FerroChatModel(model="gpt-4o", base_url="http://localhost:8080", api_key="fgw_...")
+print(llm.invoke("Hello").response_metadata["trace_id"])
 ```
 
-### Vercel AI SDK (Next.js)
-
-```typescript
-import { createOpenAI } from '@ai-sdk/openai';
-
-const ferro = createOpenAI({
-  apiKey: process.env.FERRO_API_KEY,
-  baseURL: 'http://localhost:8080/v1',
-});
-```
+See [`integrations/README.md`](integrations/README.md) for layout and publishing.
 
 ---
 
@@ -181,23 +162,36 @@ response = client.chat.completions.create(
         {"role": "user", "content": "Explain LLM routing in one paragraph."},
     ],
     temperature=0.7,
-    max_tokens=256,
+    max_completion_tokens=256,          # supersedes max_tokens; both accepted
+    response_format={"type": "json_object"},
+    seed=42,
 )
-print(response.content)                       # shortcut for choices[0].message.content
-print(f"Cost: ${response.usage.cost_usd:.6f}")
-print(f"Provider: {response.provider}")        # which backend handled it
+print(response.content)                # shortcut for choices[0].message.content
+print(response.provider)               # which backend handled it
+print(response.usage.total_tokens)
+print(response.provider_metadata)      # provider-specific extras, when present
 ```
+
+`tools`, `tool_choice`, `parallel_tool_calls`, `stop`, `top_p`, `frequency_penalty`, `presence_penalty`, `user` are first-class; any other OpenAI parameter passes through as `**kwargs`.
 
 ### Streaming
 
 ```python
-for chunk in client.chat.completions.create(
+stream = client.chat.completions.create(
     model="claude-3-5-sonnet-20241022",
     messages=[{"role": "user", "content": "Write a haiku about Go performance."}],
     stream=True,
-):
-    print(chunk.choices[0].delta.content or "", end="", flush=True)
+    stream_options={"include_usage": True},   # terminal chunk carries usage
+)
+print(stream.trace_id)                        # available before the first chunk
+for chunk in stream:
+    if chunk.choices:
+        print(chunk.choices[0].delta.content or "", end="", flush=True)
+    if chunk.usage:                            # last chunk only
+        print(f"\n{chunk.usage.total_tokens} tokens")
 ```
+
+The return value is a `Stream` (an iterator that also exposes `trace_id`, `provider`, and the underlying `response`; use `with` or `close()` to release the connection early). Every chunk carries `trace_id` too. Note that ai-gateway forwards the terminal usage chunk unless you send `stream_options={"include_usage": False}`. A mid-stream gateway error frame raises `FerroStreamError` with `.code` (`stream_error`, `stream_timeout`).
 
 ### Async
 
@@ -206,7 +200,7 @@ import asyncio
 from ferrolabsai import AsyncFerroClient
 
 async def main():
-    async with AsyncFerroClient(api_key="sk-ferro-...") as client:
+    async with AsyncFerroClient(api_key="fgw_...") as client:
         response = await client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": "Hello"}],
@@ -220,13 +214,15 @@ Async streaming:
 
 ```python
 async def stream_example():
-    async with AsyncFerroClient(api_key="sk-ferro-...") as client:
-        async for chunk in await client.chat.completions.create(
+    async with AsyncFerroClient(api_key="fgw_...") as client:
+        stream = await client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": "Count to 5"}],
             stream=True,
-        ):
-            print(chunk.choices[0].delta.content or "", end="", flush=True)
+        )
+        async for chunk in stream:
+            if chunk.choices:
+                print(chunk.choices[0].delta.content or "", end="", flush=True)
 ```
 
 ### Embeddings
@@ -234,7 +230,7 @@ async def stream_example():
 ```python
 response = client.embeddings.create(
     model="text-embedding-3-small",
-    input=["Ferro routes LLM requests", "across 29 providers"],
+    input=["Ferro routes LLM requests", "across 30 providers"],
 )
 vectors = [d.embedding for d in response.data]
 print(f"Embedding dimensions: {len(vectors[0])}")
@@ -254,80 +250,62 @@ print(response.data[0].url)
 
 ### Model catalog
 
+`GET /v1/models` returns the gateway's enriched catalog (`ModelInfo`: `id`, `owned_by`, `mode`, `context_window`, `max_output_tokens`, `capabilities`, `status`, `deprecated`). The gateway ignores query parameters and has no `/v1/models/{id}` route, so filtering and lookup are done client-side over one fetch.
+
 ```python
-# Browse all 2,500+ models
 models = client.models.list()
+anthropic_models = client.models.list(provider="anthropic")     # matches owned_by
+vision_models = client.models.list(capability="vision")          # matches capabilities[]
+claude = client.models.search("claude")                          # substring on id
 
-# Filter by provider
-anthropic_models = client.models.list(provider="anthropic")
-
-# Filter by capability
-vision_models = client.models.list(capability="vision")
-
-# Pricing for a specific model
-info = client.models.retrieve("gpt-4o")
-print(f"Context window: {info.context_window:,} tokens")
-print(f"Input:  ${info.input_cost_per_token * 1_000_000:.2f}/M tokens")
-print(f"Output: ${info.output_cost_per_token * 1_000_000:.2f}/M tokens")
+info = client.models.retrieve("gpt-4o")   # raises FerroNotFoundError locally if unknown
+print(f"{info.provider}: {info.context_window:,} tokens, {info.capabilities}")
 ```
 
-### Forwarded Ferro fields: templates & route tags
-
-The SDK passes two Ferro-specific fields on `chat.completions.create(...)`:
-
-**`template_id` + `template_variables`** — forwarded in the chat completion body for gateway deployments that support server-side prompt templates:
+### Responses API, rerank, moderations
 
 ```python
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role": "user", "content": "I can't log in"}],
-    template_id="support-agent",
-    template_variables={
-        "product": "Acme SaaS",
-        "plan": "Pro",
-        "date": "2026-04-09",
-    },
-)
+# OpenAI-style Responses API (model-routed; governed and priced like chat)
+r = client.responses.create(model="gpt-4o", input="Summarise the gateway in one line")
+print(r.status, r.output, r.trace_id)
+# retrieve/delete pin to the gateway's `responses_target`; 501 unless configured
+client.responses.retrieve(r.id)
+
+# Cohere-shape rerank and OpenAI-shape moderations return the provider JSON
+client.rerank(model="rerank-v3.5", query="gateway", documents=["a", "b"], top_n=1)
+client.moderations.create(input="some text")
 ```
 
-**`route_tag`** — forwarded as `x_route_tag` in the chat completion body for gateway deployments that support per-request route tags:
+### Gateway probes and capabilities
 
 ```python
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role": "user", "content": "Hello"}],
-    route_tag="low-cost",   # e.g. forces fallback to cheaper providers
-)
+client.live()           # {"status": "ok"}
+client.ready()          # {"status": "ready", "providers": [...], "targets": [...]} (503 body returned, not raised)
+client.health()         # {"status", "version", "commit", "built", "providers"}
+client.capabilities()   # per-provider parameter support: forward | translate | unsupported
 ```
-
-These fields are pass-through SDK fields. Confirm your gateway version supports them before relying on them for routing or template rendering.
 
 ---
 
 ## Observability
 
-Every `ChatCompletion` includes fields that tell you what the gateway actually did — no extra API calls, no log scraping:
+Every inference response (`chat`, `embeddings`, `images`, `responses`, `rerank`, `moderations`) gets the gateway's response headers merged in. This is exactly what ai-gateway v1.4.x provides — nothing else is invented:
 
-| Field | Type | Source |
-|---|---|---|
-| `response.provider` | `str` | Which upstream provider served the request (e.g. `"openai"`, `"anthropic"`) |
-| `response.trace_id` | `str` | Correlates this request with gateway logs |
-| `response.latency_ms` | `int` | End-to-end gateway latency |
-| `response.usage.cost_usd` | `float` | Computed cost in USD |
-| `response.usage.cache_hit` | `bool` | Whether the response came from the gateway's semantic cache |
-| `response.usage.prompt_tokens` / `completion_tokens` / `total_tokens` | `int` | Standard OpenAI token counts |
+| Field | Type | Source | Populated on |
+|---|---|---|---|
+| `response.trace_id` | `str` | `X-Request-ID` header (32 hex chars; equals the OTel trace id) | every response, `Stream.trace_id`, every chunk, every `FerroAPIError.request_id` |
+| `response.provider` | `str` | body `provider` on chat completions; `X-Gateway-Provider` header on responses/pass-through | non-streaming chat, responses (not on SSE streams as of v1.4.5) |
+| `response.gateway_overhead_ms` | `float` | `X-Gateway-Overhead-Ms` header — the gateway's own processing time, **not** end-to-end latency | non-streaming chat completions |
+| `response.provider_metadata` | `dict` | body `provider_metadata` | when the provider returns extras |
+| `response.usage.prompt_tokens` / `completion_tokens` / `total_tokens` | `int` | body `usage` | chat, embeddings, terminal streaming chunk |
+| `response.usage.reasoning_tokens` / `cache_read_tokens` / `cache_write_tokens` | `int \| None` | body `usage` (omitted when zero) | when the provider reports them |
 
 ```python
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role": "user", "content": "Hello"}],
-)
-
-print(f"trace={response.trace_id} provider={response.provider} "
-      f"latency={response.latency_ms}ms cost=${response.usage.cost_usd:.6f}")
+response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": "Hello"}])
+print(f"trace={response.trace_id} provider={response.provider} overhead={response.gateway_overhead_ms}ms")
 ```
 
-To dig deeper into a specific request, use `client.admin.logs.list(trace_id=...)` — see [Admin API](#admin-api-oss-gateway).
+Cost and cache hits are not exposed to callers — they live in the gateway's request log (`client.admin.logs.list(model=...)` joins on `trace_id`), Prometheus, and OTel spans.
 
 ---
 
@@ -337,16 +315,16 @@ To dig deeper into a specific request, use `client.admin.logs.list(trace_id=...)
 
 ```python
 client = FerroClient(
-    api_key="sk-ferro-...",                  # or FERRO_API_KEY env var
+    api_key="fgw_...",                       # or FERRO_API_KEY env var
     base_url="http://localhost:8080",        # or FERRO_BASE_URL env var
     timeout=120.0,                           # seconds (default: 120.0)
-    max_retries=2,                           # retries on connection errors (default: 2)
+    max_retries=2,                           # default: 2
     default_headers={"x-env": "prod"},       # merged into every request
     http_client=my_httpx_client,             # bring your own httpx.Client
 )
 ```
 
-**Retries** are triggered only by `httpx.ConnectError` and `httpx.TimeoutException` — HTTP errors (4xx/5xx) propagate immediately as typed exceptions so you can handle them yourself.
+**Retries** cover connection errors, timeouts, and HTTP `408` / `429` / `5xx` — capped exponential backoff with full jitter (0.5 s base, 8 s cap), honouring `Retry-After` when the gateway sends one (capped at 30 s, the same cap the gateway applies upstream). Other `4xx` responses and **streaming requests are never retried**.
 
 **Bring-your-own httpx client** lets you configure proxies, custom TLS, connection pool limits, or instrumentation middleware and reuse that across the SDK:
 
@@ -354,20 +332,14 @@ client = FerroClient(
 import httpx
 
 pooled = httpx.Client(limits=httpx.Limits(max_connections=50))
-client = FerroClient(api_key="sk-ferro-...", http_client=pooled)
+client = FerroClient(api_key="fgw_...", http_client=pooled)
 ```
 
 Close the client explicitly when you're done (or use a `with` block):
 
 ```python
-with FerroClient(api_key="sk-ferro-...") as client:
+with FerroClient(api_key="fgw_...") as client:
     ...
-# or
-client = FerroClient(api_key="sk-ferro-...")
-try:
-    ...
-finally:
-    client.close()
 ```
 
 ---
@@ -378,6 +350,8 @@ finally:
 from ferrolabsai import (
     FerroClient,
     FerroAuthError,
+    FerroBudgetExceededError,
+    FerroPermissionError,
     FerroRateLimitError,
     FerroNotFoundError,
     FerroServerError,
@@ -389,27 +363,31 @@ try:
         model="gpt-4o",
         messages=[{"role": "user", "content": "Hello"}],
     )
-except FerroAuthError:
+except FerroAuthError:                    # 401
     print("Invalid API key — check FERRO_API_KEY")
-except FerroRateLimitError:
-    print("Rate limit hit — back off and retry")
-except FerroNotFoundError:
-    print("Model or endpoint not found")
-except FerroServerError as e:
-    print(f"Gateway error {e.status_code} — upstream provider may be down")
+except FerroBudgetExceededError:          # 402 insufficient_quota
+    print("Spend limit reached for this key")
+except FerroPermissionError:              # 403 insufficient_scope
+    print("This key lacks the scope for that route")
+except FerroRateLimitError as e:          # 429 (already retried)
+    print(f"Rate limited — retry after {e.retry_after}s")
+except FerroNotFoundError as e:           # 404 model_not_found / not_found
+    print(f"Not found: {e.code}")
+except FerroServerError as e:             # 5xx (already retried)
+    print(f"Gateway error {e.status_code} ({e.code}) — trace {e.request_id}")
 except FerroConnectionError:
     print("Cannot reach gateway — is it running?")
 ```
 
-All HTTP-level exceptions inherit from `FerroAPIError` and expose `.status_code`, `.code`, `.message`, and `.request_id`. `FerroConnectionError` and `FerroStreamError` inherit from `FerroError` directly.
+All HTTP-level exceptions inherit from `FerroAPIError` and expose `.status_code`, `.code` (the gateway's error code, e.g. `model_not_found`, `insufficient_scope`), `.message`, and `.request_id`. `FerroConnectionError` and `FerroStreamError` inherit from `FerroError` directly.
 
 ---
 
 ## Admin API (OSS gateway)
 
-These APIs are available on any self-hosted Ferro Labs AI Gateway instance. Requires an admin-scoped API key.
+These APIs are available on any self-hosted Ferro Labs AI Gateway instance. Reads need a `read_only` or `admin` key; writes need `admin` (a `read_only` key gets `FerroPermissionError`).
 
-The admin namespace mirrors the OSS gateway's `/admin/*` HTTP surface defined in [`internal/admin/handlers.go`](https://github.com/ferro-labs/ai-gateway/blob/main/internal/admin/handlers.go).
+The admin namespace mirrors the OSS gateway's `/admin/*` HTTP surface defined in the [`internal/admin/handlers`](https://github.com/ferro-labs/ai-gateway/tree/main/internal/admin/handlers) package.
 
 ### API keys
 
@@ -417,12 +395,16 @@ The admin namespace mirrors the OSS gateway's `/admin/*` HTTP surface defined in
 # Create
 new_key = client.admin.keys.create(
     name="backend-service",
-    scopes=["admin"],
+    scopes=["admin"],                 # or ["read_only"]
 )
 print(new_key.key)  # full key value — shown ONCE, store it securely
 
-# List
+# List / retrieve (key values are masked: fgw_ab12...cd34)
 keys = client.admin.keys.list()
+key = client.admin.keys.retrieve("key_id")
+
+# Update metadata
+client.admin.keys.update("key_id", name="renamed", active=False)
 
 # Per-key usage counts (sorted by usage by default)
 usage = client.admin.keys.usage(limit=20)
@@ -433,7 +415,7 @@ client.admin.keys.revoke("key_id")
 # Rotate — atomically invalidates old, returns new
 rotated = client.admin.keys.rotate("key_id")
 
-# Permanently delete the record
+# Permanently delete the record (the gateway refuses to delete the last admin key)
 client.admin.keys.delete("key_id")
 ```
 
@@ -442,54 +424,54 @@ client.admin.keys.delete("key_id")
 The OSS gateway has a single *active* routing config. Use `history()` to inspect prior versions and `rollback(version)` to revert. Updates are zero-downtime hot reloads.
 
 ```python
-# Read the current config
 cfg = client.admin.config.get()
 print(cfg.strategy)  # e.g. {"mode": "fallback"}
 print(cfg.targets)   # list of {virtual_key, weight, ...}
 
-# Replace it (PUT) — hot reload, no restart
 client.admin.config.update({
     "strategy": {"mode": "fallback"},
     "targets": [
         {"virtual_key": "openai",    "weight": 1},
         {"virtual_key": "anthropic", "weight": 1},
-        {"virtual_key": "groq",      "weight": 1},
-    ],
-    "plugins": [
-        {"name": "cache",  "enabled": True},
-        {"name": "logger", "enabled": True},
     ],
 })
 
-# Inspect history and roll back
 history = client.admin.config.history()
 client.admin.config.rollback(history[-2].version)
 ```
 
+Note: `get()` masks secrets and redacts free-form map keys, so its body does not round-trip unchanged into `update()`; unknown keys are rejected with `400`.
+
 ### Request logs
 
-The gateway logs every request (when the `logger` plugin is enabled). Query, aggregate, and prune via `client.admin.logs`.
+The gateway records every request when a request-log store is configured (`REQUEST_LOG_STORE_BACKEND=sqlite|postgres`); the endpoints answer `501` without one.
 
 ```python
-# Recent failures
-errors = client.admin.logs.list(limit=20, stage="on_error")
-for entry in errors["data"]:
-    print(entry["trace_id"], entry["model"], entry["provider"])
+# Recent entries for a model (one row per request; stage="all" shows every lifecycle stage)
+entries = client.admin.logs.list(limit=20, model="gpt-4o")
+for entry in entries["data"]:
+    print(entry["trace_id"], entry["provider"], entry["duration_ms"], entry["cost_usd"])
 
-# Aggregate stats
-stats = client.admin.logs.stats()
+# Filter by the calling key
+client.admin.logs.list(api_key_id="key_id")
+
+# Aggregate stats with a 24-point time series
+stats = client.admin.logs.stats(buckets=24)
 
 # Prune old entries
 client.admin.logs.delete(before="2026-01-01T00:00:00Z")
 ```
 
-### Providers, plugins, dashboard
+### Providers, plugins, audit, dashboard
 
 ```python
-providers = client.admin.providers.list()  # registered LLM providers
-plugins   = client.admin.plugins.list()    # installed gateway plugins
-dashboard = client.admin.dashboard()       # high-level counts
-health    = client.admin.health()          # gateway health check
+providers = client.admin.providers.list()      # registered providers and their models
+catalog   = client.admin.providers.catalog()   # every provider the build knows: {id, registered, catalog_models}
+plugins   = client.admin.plugins.list()        # configured plugins
+available = client.admin.plugins.catalog()     # built-in plugins available to configure
+audit     = client.admin.audit.list(action="key.create", limit=50)   # admin audit trail
+dashboard = client.admin.dashboard()           # high-level counts
+health    = client.admin.health()              # gateway health check (admin view)
 ```
 
 ---
@@ -504,12 +486,16 @@ make test             # pytest (all HTTP is mocked — no gateway needed)
 make lint             # ruff + mypy
 make format           # ruff format
 make build            # build sdist + wheel into dist/
-make clean            # remove artifacts
+make contract         # boot a real gateway from ../ai-gateway and run tests/contract
 ```
 
-All 30 tests run in under a second against `pytest-httpx` fixtures, so no network or running gateway is required.
+The 113 unit tests run in a few seconds against `pytest-httpx` fixtures, so no network or running gateway is required.
 
-See [CHANGELOG.md](CHANGELOG.md) for release history.
+### Contract tests
+
+`tests/contract/` is skipped unless `FERRO_CONTRACT_BASE_URL` is set. `scripts/with-gateway.sh` builds `ferrogw` from an [ai-gateway](https://github.com/ferro-labs/ai-gateway) checkout (`FERRO_GATEWAY_SOURCE`, default `../ai-gateway`), points it at a stdlib stub upstream (`tests/contract/stub_upstream.py`), and runs the 23 contract tests: probes, catalog, chat, streaming, embeddings, responses, the error envelope (401/403/404/501), and every admin route the SDK wraps. CI runs it against the pinned `v1.4.5` (required) and `main` (advisory).
+
+See [CHANGELOG.md](CHANGELOG.md) for release history and [docs/architecture.md](docs/architecture.md) for the design.
 
 ---
 
