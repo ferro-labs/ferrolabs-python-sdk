@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ferrolabsai"
-version = "0.2.1"
-description = "Official Python SDK for Ferro Labs AI Gateway — route LLM requests across 29 providers with a single OpenAI-compatible API"
+version = "0.3.0"
+description = "Official Python SDK for Ferro Labs AI Gateway — route LLM requests across 30 providers with a single OpenAI-compatible API"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.9"
@@ -26,6 +26,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]

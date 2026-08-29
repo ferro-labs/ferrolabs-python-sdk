@@ -232,7 +232,7 @@ The `_ChatNamespace` class exists solely to provide the `client.chat.completions
 | `X-Gateway-Overhead-Ms` | non-streaming `/v1/chat/completions`, when > 0 | `gateway_overhead_ms` |
 | `Retry-After` | every gateway-originated `429` (`"1"`), upstream `429` (upstream value) | retry delay; `FerroRateLimitError.retry_after` |
 
-No `X-Ferro-*`, cost, or cache-hit header exists at any gateway version; the SDK reads none.
+No Ferro-branded, cost, latency, or cache-hit response header exists at any gateway version; the SDK reads none.
 
 ### Body extensions read by the SDK
 

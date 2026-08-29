@@ -142,7 +142,7 @@ Always run `make format lint test` before committing; run `make contract` when t
 - All public exports must be listed in `ferrolabsai/__init__.py` and the `__all__` list.
 - The SDK mirrors the OpenAI SDK surface: `client.chat.completions.create()`, `client.embeddings.create()`, `client.images.generate()`, `client.models.list()`, `client.responses.create()`.
 - Gateway-specific surface: `client.health()/ready()/live()/capabilities()/rerank()`, `client.moderations`, `client.admin.*`.
-- **Only model what the gateway really does.** Response metadata comes from `X-Request-ID`, `X-Gateway-Provider`, `X-Gateway-Overhead-Ms`, and the body fields `provider` / `provider_metadata` / `reasoning_content` / usage counters. There is no cost, cache-hit, or latency field for callers, and no `route_tag` / `template_*` request field — do not reintroduce them. `docs/architecture.md` § "Gateway Contract" is the reference; the contract suite enforces it.
+- **Only model what the gateway really does.** Response metadata comes from `X-Request-ID`, `X-Gateway-Provider`, `X-Gateway-Overhead-Ms`, and the body fields `provider` / `provider_metadata` / `reasoning_content` / usage counters. There is no cost, cache-hit, or latency field for callers, and no per-request routing-tag or prompt-template request field — do not reintroduce them. `docs/architecture.md` § "Gateway Contract" is the reference; the contract suite enforces it.
 
 ### Environment Variables
 - `FERRO_API_KEY` — primary API key (takes precedence).
