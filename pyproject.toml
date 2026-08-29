@@ -61,7 +61,6 @@ target-version = "py39"
 select = ["E", "F", "I", "UP"]
 
 [tool.mypy]
-python_version = "3.9"
 strict = true
 ignore_missing_imports = true
 

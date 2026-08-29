@@ -3,18 +3,20 @@ ferrolabsai — Official Python SDK for Ferro Labs AI Gateway
 
 pip install ferrolabsai
 
+Compatibility: ferrolabsai 0.3.x ↔ ai-gateway ≥ v1.4.0.
+
 Quick start::
 
     from ferrolabsai import FerroClient
 
-    client = FerroClient(api_key="sk-ferro-...")
+    client = FerroClient(api_key="fgw_...")
 
     # OpenAI-compatible — just change base_url
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": "Hello"}],
     )
-    print(response.content)
+    print(response.content, response.provider, response.trace_id)
 
     # Route to ANY provider by model name — Ferro handles it
     response = client.chat.completions.create(
@@ -26,7 +28,7 @@ Async::
 
     from ferrolabsai import AsyncFerroClient
 
-    async with AsyncFerroClient(api_key="sk-ferro-...") as client:
+    async with AsyncFerroClient(api_key="fgw_...") as client:
         response = await client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": "Hello"}],
@@ -40,7 +42,7 @@ Migrate from openai in one line::
 
     # After — all existing code works unchanged
     from ferrolabsai import FerroClient
-    client = FerroClient(api_key="sk-ferro-...")
+    client = FerroClient(api_key="fgw_...")
 """
 
 from ._version import __version__
@@ -48,13 +50,16 @@ from .client import AsyncFerroClient, FerroClient
 from .exceptions import (
     FerroAPIError,
     FerroAuthError,
+    FerroBudgetExceededError,
     FerroConnectionError,
     FerroError,
     FerroNotFoundError,
+    FerroPermissionError,
     FerroRateLimitError,
     FerroServerError,
     FerroStreamError,
 )
+from .streaming import AsyncStream, Stream
 from .types import (
     APIKey,
     ChatCompletion,
@@ -69,6 +74,7 @@ from .types import (
     ImageData,
     ImageResponse,
     ModelInfo,
+    Response,
     StreamChoice,
     StreamDelta,
     Usage,
@@ -83,11 +89,16 @@ __all__ = [
     "FerroError",
     "FerroAPIError",
     "FerroAuthError",
+    "FerroBudgetExceededError",
+    "FerroPermissionError",
     "FerroRateLimitError",
     "FerroNotFoundError",
     "FerroServerError",
     "FerroConnectionError",
     "FerroStreamError",
+    # Streaming
+    "Stream",
+    "AsyncStream",
     # Response types
     "ChatCompletion",
     "ChatCompletionChunk",
@@ -101,6 +112,7 @@ __all__ = [
     "ImageResponse",
     "ImageData",
     "ModelInfo",
+    "Response",
     # Admin types
     "APIKey",
     "CreatedAPIKey",

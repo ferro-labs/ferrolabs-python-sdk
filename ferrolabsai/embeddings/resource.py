@@ -2,13 +2,35 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..types import EmbeddingResponse
 
+if TYPE_CHECKING:
+    from ..client import FerroClient
+
+PATH = "/v1/embeddings"
+
+
+def build_body(
+    model: str,
+    input: str | list[str],
+    encoding_format: str | None,
+    dimensions: int | None,
+    user: str | None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"model": model, "input": input}
+    if encoding_format is not None:
+        body["encoding_format"] = encoding_format
+    if dimensions is not None:
+        body["dimensions"] = dimensions
+    if user is not None:
+        body["user"] = user
+    return body
+
 
 class Embeddings:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: FerroClient) -> None:
         self._client = client
 
     def create(
@@ -38,13 +60,5 @@ class Embeddings:
             )
             vectors = [d.embedding for d in response.data]
         """
-        body: dict[str, Any] = {"model": model, "input": input}
-        if encoding_format is not None:
-            body["encoding_format"] = encoding_format
-        if dimensions is not None:
-            body["dimensions"] = dimensions
-        if user is not None:
-            body["user"] = user
-
-        data = self._client._request("POST", "/v1/embeddings", json=body)
-        return EmbeddingResponse.from_dict(data)
+        body = build_body(model, input, encoding_format, dimensions, user)
+        return EmbeddingResponse.from_dict(self._client._request("POST", PATH, json=body))
