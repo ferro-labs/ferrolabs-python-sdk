@@ -5,7 +5,7 @@
 
 LangChain integration for [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) — route LangChain chat, streaming, tool-calling, structured-output, and embedding workloads across **30 LLM providers** through a single OpenAI-compatible endpoint, with automatic fallback, load balancing, budgets, and observability.
 
-Compatibility: `langchain-ferrolabsai 0.2.x` ↔ `ferrolabsai ≥ 0.3.0` ↔ `ai-gateway ≥ v1.4.0`; `langchain-core ≥ 0.3` (tested on 1.x).
+Compatibility: `langchain-ferrolabsai 0.2.x` ↔ `ferrolabsai ≥ 0.3.0`; requires `ai-gateway ≥ v1.4.0` (contract-tested against `v1.4.5`); `langchain-core ≥ 0.3` (tested on 1.x).
 
 ---
 
@@ -36,8 +36,9 @@ print(response.response_metadata["trace_id"])  # gateway X-Request-ID
 print(response.response_metadata.get("gateway_overhead_ms"))  # gateway's own overhead
 ```
 
-`response_metadata` contains exactly what the gateway provides — `model`, `id`,
-`trace_id`, `provider`, `gateway_overhead_ms` — with absent values stripped.
+The gateway-derived fields on `response_metadata` are `model`, `id`,
+`trace_id`, `provider`, and `gateway_overhead_ms`, with absent values stripped
+(LangChain adds its own, such as `finish_reason`).
 `trace_id` is the join key for `client.admin.logs.list()` and for the
 gateway's observability exporters (LangSmith, Langfuse, Phoenix, …).
 

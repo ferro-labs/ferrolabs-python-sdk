@@ -16,13 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] — 2026-08-29
 
-Requires `ferrolabsai >= 0.3.0` (the "truth release") and ai-gateway ≥ v1.4.0.
+Requires `ferrolabsai >= 0.3.0` (the "truth release") and ai-gateway ≥ v1.4.0
+(contract-tested against v1.4.5).
 
 ### Breaking
 
-- `response_metadata` now contains exactly what the gateway provides:
-  `model`, `id`, `trace_id` (`X-Request-ID` header), `provider` (body field),
-  `gateway_overhead_ms` (`X-Gateway-Overhead-Ms` header). `latency_ms`,
+- The gateway-derived fields on `response_metadata` are now exactly what the
+  gateway provides: `model`, `id`, `trace_id` (`X-Request-ID` header),
+  `provider` (body field), `gateway_overhead_ms` (`X-Gateway-Overhead-Ms`
+  header); LangChain adds its own (e.g. `finish_reason`). `latency_ms`,
   `cost_usd`, and `cache_hit` are gone — the gateway never emitted them, so
   they were always absent.
 - Removed the `route_tag`, `template_id`, and `template_variables` fields from
@@ -36,7 +38,9 @@ Requires `ferrolabsai >= 0.3.0` (the "truth release") and ai-gateway ≥ v1.4.0.
 - `FerroChatModel.with_structured_output(schema, include_raw=False)` via the
   OpenAI-style `response_format={"type": "json_schema", ...}` path; accepts a
   pydantic model class or a JSON-schema dict.
-- Streaming: the first chunk carries `trace_id` in `response_metadata`.
+- Streaming: the first chunk carries `trace_id` in `response_metadata`, and the
+  terminal usage-only chunk surfaces `usage_metadata` (send
+  `stream_options={"include_usage": True}`).
 - Python 3.13 classifier.
 
 ---

@@ -8,11 +8,12 @@ Public API::
     embed = FerroEmbeddings(model="text-embedding-3-small", api_key="sk-ferro-...")
     legacy = FerroLLM(model="gpt-4o", api_key="sk-ferro-...")
 
-All three classes route through a Ferro Labs AI Gateway endpoint (ai-gateway
-≥ v1.4.0). Chat responses expose the gateway's ``trace_id`` (the ``X-Request-ID``
-response header), ``provider`` and ``gateway_overhead_ms`` via
-``response_metadata`` — ``trace_id`` is the join key for the gateway's request
-log and its observability exporters (LangSmith, Langfuse, Phoenix, …).
+All three classes route through a Ferro Labs AI Gateway endpoint (requires
+ai-gateway ≥ v1.4.0; contract-tested against v1.4.5). Chat responses expose
+the gateway's ``trace_id`` (the ``X-Request-ID`` response header),
+``provider`` and ``gateway_overhead_ms`` via ``response_metadata`` —
+``trace_id`` is the join key for the gateway's request log and its
+observability exporters (LangSmith, Langfuse, Phoenix, …).
 """
 
 from __future__ import annotations

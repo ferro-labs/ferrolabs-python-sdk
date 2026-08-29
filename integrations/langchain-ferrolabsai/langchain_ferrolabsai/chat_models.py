@@ -4,11 +4,11 @@ A single ``FerroChatModel`` instance can address any of the gateway's 30
 providers by name (e.g. ``"gpt-4o"``, ``"claude-3-5-sonnet-20241022"``,
 ``"gemini-2.5-flash"``) without changing the model class.
 
-``response_metadata`` carries exactly what the gateway provides: ``model``,
-``id``, ``trace_id`` (the ``X-Request-ID`` response header — the join key for
-the gateway's request log and observability exporters), ``provider`` (body
+The gateway-derived fields on ``response_metadata`` are ``model``, ``id``,
+``trace_id`` (the ``X-Request-ID`` response header — the join key for the
+gateway's request log and observability exporters), ``provider`` (body
 field), and ``gateway_overhead_ms`` (``X-Gateway-Overhead-Ms`` header).
-Absent values are stripped.
+Absent values are stripped; LangChain adds its own (e.g. ``finish_reason``).
 """
 
 from __future__ import annotations
