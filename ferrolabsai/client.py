@@ -6,6 +6,7 @@ Points at any self-hosted Ferro Labs AI Gateway instance (ai-gateway ≥ v1.4.0)
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import random
 import time
@@ -113,12 +114,13 @@ def _should_retry(method: str, *, status: int | None = None, exc: Exception | No
 
 
 def _retry_after_seconds(response: httpx.Response) -> float | None:
-    """``Retry-After`` in seconds, or None when absent / not a number (HTTP-date form)."""
-    value = response.headers.get("retry-after")
+    """``Retry-After`` in seconds, or None when absent, not a number (HTTP-date form),
+    negative, NaN, or infinite."""
     try:
-        return float(value) if value else None
+        seconds = float(response.headers.get("retry-after", ""))
     except ValueError:
         return None
+    return seconds if math.isfinite(seconds) and seconds >= 0 else None
 
 
 def _retry_delay(attempt: int, retry_after: float | None = None) -> float:

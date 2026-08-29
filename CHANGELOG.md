@@ -55,7 +55,7 @@ keeps it that way. Compatibility: `ferrolabsai 0.3.x` ↔ `ai-gateway ≥ v1.4.0
   `DELETE` / `OPTIONS`. A `POST` that hits a read timeout is **no longer
   retried** (0.2.x retried every timeout regardless of method) — it may
   already have been processed. Full-jitter backoff, `Retry-After` honoured
-  (capped at 30 s).
+  (capped at 30 s; negative, `NaN`, and infinite values are ignored).
   `max_retries=0` disables retries. Streaming is never retried, and its
   transport failures now raise `FerroConnectionError` like `_request` does.
 - `FerroRateLimitError.__init__` gained keyword-only `retry_after`;

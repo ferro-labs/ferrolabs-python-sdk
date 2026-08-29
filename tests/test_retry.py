@@ -1,5 +1,5 @@
 """Retry policy: status/exception retries are idempotent-only except 429 and connect
-failures; streaming maps transport errors but never retries."""
+failures; streaming maps transport errors but never retries; Retry-After parsing."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
-from ferrolabsai.client import _should_retry
+from ferrolabsai.client import _retry_after_seconds, _should_retry
 from ferrolabsai.exceptions import FerroConnectionError, FerroRateLimitError, FerroServerError
 
 from .conftest import BASE_URL, COMPLETION_RESPONSE
@@ -51,6 +51,16 @@ class TestShouldRetry:
     )
     def test_exception(self, method, exc, expected):
         assert _should_retry(method, exc=exc) is expected
+
+
+class TestRetryAfterSeconds:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("-1", None), ("nan", None), ("inf", None), ("abc", None), ("2", 2.0), (None, None)],
+    )
+    def test_parses_only_finite_non_negative_numbers(self, value, expected):
+        headers = {"Retry-After": value} if value is not None else {}
+        assert _retry_after_seconds(httpx.Response(429, headers=headers)) == expected
 
 
 class TestRequestRetryPolicy:
