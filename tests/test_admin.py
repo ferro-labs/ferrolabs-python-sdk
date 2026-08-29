@@ -221,7 +221,7 @@ class TestProvidersPluginsAudit:
         httpx_mock.add_response(
             method="GET",
             url=f"{ADMIN}/providers/catalog",
-            json=[{"id": "openai", "registered": True, "catalog_models": 90}],
+            json={"providers": [{"id": "openai", "registered": True, "catalog_models": 90}]},
         )
         httpx_mock.add_response(
             method="GET", url=f"{ADMIN}/plugins/catalog", json={"data": [{"name": "budget"}]}
@@ -253,7 +253,7 @@ class TestProvidersPluginsAudit:
             method="GET", url=f"{ADMIN}/providers", json={"data": [{"name": "openai"}]}
         )
         httpx_mock.add_response(
-            method="GET", url=f"{ADMIN}/providers/catalog", json=[{"id": "openai"}]
+            method="GET", url=f"{ADMIN}/providers/catalog", json={"providers": [{"id": "openai"}]}
         )
         httpx_mock.add_response(method="GET", url=f"{ADMIN}/plugins/catalog", json={"data": []})
         httpx_mock.add_response(

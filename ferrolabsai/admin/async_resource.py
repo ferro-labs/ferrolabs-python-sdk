@@ -172,7 +172,9 @@ class _AsyncProvidersResource:
         return items(await self._client._request("GET", "/admin/providers"), "data", "providers")
 
     async def catalog(self) -> builtins.list[dict[str, Any]]:
-        return items(await self._client._request("GET", "/admin/providers/catalog"), "data")
+        return items(
+            await self._client._request("GET", "/admin/providers/catalog"), "providers", "data"
+        )
 
 
 class _AsyncPluginsResource:

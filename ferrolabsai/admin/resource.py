@@ -377,7 +377,7 @@ class _ProvidersResource:
     def catalog(self) -> builtins.list[dict[str, Any]]:
         """``GET /admin/providers/catalog`` — every provider the build knows:
         ``{id, registered, catalog_models}``."""
-        return items(self._client._request("GET", "/admin/providers/catalog"), "data")
+        return items(self._client._request("GET", "/admin/providers/catalog"), "providers", "data")
 
 
 class _PluginsResource:
