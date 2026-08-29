@@ -134,7 +134,7 @@ Always run `make format lint test` before committing; run `make contract` when t
 - **Dataclass response models** — all types in `types.py` are `@dataclass` with a `from_dict()` classmethod. No pydantic dependency.
 - **Resource pattern** — each API area lives in its own sub-package with a `resource.py` (sync) and `async_resource.py`. The async module imports the body builders / path constants from the sync one so the wire format is written once.
 - **Client holds HTTP** — `_request()` (retry + error mapping + header metadata on inference paths) and `_open_stream()` (SSE, never retried) are the only HTTP entry points. Resources receive the typed client (`if TYPE_CHECKING: from ..client import FerroClient`) and call `self._client._request(...)`.
-- **Exception hierarchy** — all HTTP errors raise typed exceptions inheriting from `FerroAPIError`. Connection/timeout errors and `408/429/5xx` retry with jittered backoff (honouring `Retry-After`), then raise `FerroConnectionError` / the mapped `FerroAPIError`.
+- **Exception hierarchy** — all HTTP errors raise typed exceptions inheriting from `FerroAPIError`. `429`, connection errors, and connect timeouts retry for every method; `408/5xx` and read/write/pool timeouts retry only for idempotent methods (`_should_retry`). Jittered backoff honours `Retry-After`; exhaustion raises `FerroConnectionError` / the mapped `FerroAPIError`.
 - **Immutability by default** — do not mutate arguments; return new objects (`_with_response_metadata` returns a new dict, streaming uses `dataclasses.replace`).
 - **Keep files small** — prefer several focused modules over one large file (`types_responses.py` exists for that reason).
 

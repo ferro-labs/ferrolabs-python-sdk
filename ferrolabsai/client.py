@@ -46,6 +46,7 @@ DEFAULT_RETRY_BACKOFF_BASE: float = 0.5
 DEFAULT_RETRY_BACKOFF_MAX: float = 8.0
 RETRY_AFTER_MAX: float = 30.0  # same cap the gateway applies to its own upstream retries
 RETRYABLE_STATUSES: frozenset[int] = frozenset({408, 429})  # plus every 5xx
+IDEMPOTENT_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "PUT", "DELETE", "OPTIONS"})
 
 # Only inference bodies get header metadata (trace_id, provider, gateway_overhead_ms)
 # merged in; catalog, probe, and admin bodies are returned untouched.
@@ -92,8 +93,23 @@ def _default_headers(api_key: str, extra: dict[str, str] | None) -> dict[str, st
 # ------------------------------------------------------------------
 
 
-def _is_retryable(status: int) -> bool:
-    return status in RETRYABLE_STATUSES or status >= 500
+def _should_retry(method: str, *, status: int | None = None, exc: Exception | None = None) -> bool:
+    """Whether a failed attempt may be re-sent.
+
+    A 429 means the gateway did not process the request, and a connect error or
+    connect timeout means the request never left, so those retry for every
+    method. Any other retryable status (408/5xx) or timeout (read/write/pool)
+    leaves a non-idempotent request ambiguous — a POST may already have been
+    processed — so those retry only for idempotent methods.
+    """
+    idempotent = method.upper() in IDEMPOTENT_METHODS
+    if status is not None:
+        if status == 429:
+            return True
+        return idempotent and (status in RETRYABLE_STATUSES or status >= 500)
+    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+        return True
+    return idempotent and isinstance(exc, httpx.TimeoutException)
 
 
 def _retry_after_seconds(response: httpx.Response) -> float | None:
@@ -237,11 +253,13 @@ class FerroClient:
                     response.raise_for_status()
                 return _parse_body(response, path)
             except httpx.HTTPStatusError as e:
-                if attempt >= self.max_retries or not _is_retryable(e.response.status_code):
+                if attempt >= self.max_retries or not _should_retry(
+                    method, status=e.response.status_code
+                ):
                     _raise_api_error(e)
                 delay = _retry_delay(attempt + 1, _retry_after_seconds(e.response))
             except (httpx.ConnectError, httpx.TimeoutException) as e:
-                if attempt >= self.max_retries:
+                if attempt >= self.max_retries or not _should_retry(method, exc=e):
                     raise _connection_error(e, self.base_url, self.timeout) from e
                 delay = _retry_delay(attempt + 1)
             attempt += 1
@@ -381,11 +399,13 @@ class AsyncFerroClient:
                     response.raise_for_status()
                 return _parse_body(response, path)
             except httpx.HTTPStatusError as e:
-                if attempt >= self.max_retries or not _is_retryable(e.response.status_code):
+                if attempt >= self.max_retries or not _should_retry(
+                    method, status=e.response.status_code
+                ):
                     _raise_api_error(e)
                 delay = _retry_delay(attempt + 1, _retry_after_seconds(e.response))
             except (httpx.ConnectError, httpx.TimeoutException) as e:
-                if attempt >= self.max_retries:
+                if attempt >= self.max_retries or not _should_retry(method, exc=e):
                     raise _connection_error(e, self.base_url, self.timeout) from e
                 delay = _retry_delay(attempt + 1)
             attempt += 1

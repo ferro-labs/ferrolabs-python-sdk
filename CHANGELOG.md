@@ -49,9 +49,14 @@ keeps it that way. Compatibility: `ferrolabsai 0.3.x` ↔ `ai-gateway ≥ v1.4.0
   `trace_id`, `provider`, `response`, `close()`, and context-manager support.
   HTTP errors on a stream now raise when `create(stream=True)` is called (async:
   when awaited), not on first iteration.
-- **Retries now cover HTTP 408/429/5xx** (previously connect/timeout only),
-  with full-jitter backoff and `Retry-After` honoured (capped at 30 s).
-  `max_retries=0` disables them. Streaming is never retried.
+- **Retries are idempotent-aware.** HTTP `429`, connection errors, and
+  connect timeouts are retried for every method; HTTP `408` / `5xx` and
+  read / write / pool timeouts are retried only for `GET` / `HEAD` / `PUT` /
+  `DELETE` / `OPTIONS`. A `POST` that hits a read timeout is **no longer
+  retried** (0.2.x retried every timeout regardless of method) — it may
+  already have been processed. Full-jitter backoff, `Retry-After` honoured
+  (capped at 30 s).
+  `max_retries=0` disables retries. Streaming is never retried.
 - `FerroRateLimitError.__init__` gained keyword-only `retry_after`;
   `FerroStreamError.__init__` gained keyword-only `code`.
 - `_request(stream=True)` (private) is removed; `_open_stream()` replaces it.

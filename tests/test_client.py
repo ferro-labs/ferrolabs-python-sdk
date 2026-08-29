@@ -25,6 +25,7 @@ from ferrolabsai.exceptions import (
 from .conftest import API_KEY, BASE_URL, COMPLETION_RESPONSE, TRACE_ID
 
 CHAT_URL = f"{BASE_URL}/v1/chat/completions"
+CAPABILITIES_URL = f"{BASE_URL}/v1/capabilities"
 
 
 def _chat(client: FerroClient):
@@ -241,7 +242,7 @@ class TestRetries:
         monkeypatch.setattr("ferrolabsai.client.time.sleep", sleeps.append)
         client.max_retries = 2
         httpx_mock.add_exception(httpx.ConnectError("refused"), method="POST", url=CHAT_URL)
-        httpx_mock.add_exception(httpx.ReadTimeout("slow"), method="POST", url=CHAT_URL)
+        httpx_mock.add_exception(httpx.ConnectTimeout("slow"), method="POST", url=CHAT_URL)
         httpx_mock.add_response(method="POST", url=CHAT_URL, json=COMPLETION_RESPONSE)
         assert _chat(client).id == "chatcmpl-abc123"
         assert sleeps == [0.5, 1.0]
@@ -265,10 +266,10 @@ class TestRetries:
         monkeypatch.setattr("ferrolabsai.client.time.sleep", sleeps.append)
         client.max_retries = 1
         httpx_mock.add_response(
-            method="POST", url=CHAT_URL, status_code=status, json={"error": {"message": "x"}}
+            method="GET", url=CAPABILITIES_URL, status_code=status, json={"error": {"message": "x"}}
         )
-        httpx_mock.add_response(method="POST", url=CHAT_URL, json=COMPLETION_RESPONSE)
-        assert _chat(client).id == "chatcmpl-abc123"
+        httpx_mock.add_response(method="GET", url=CAPABILITIES_URL, json={"providers": {}})
+        assert client.capabilities() == {"providers": {}}
         assert sleeps == [0.5]
 
     def test_sync_honours_retry_after_capped(self, monkeypatch, client, httpx_mock: HTTPXMock):
@@ -309,17 +310,20 @@ class TestRetries:
         client.max_retries = 1
         for _ in range(2):
             httpx_mock.add_response(
-                method="POST", url=CHAT_URL, status_code=503, json={"error": {"message": "x"}}
+                method="GET",
+                url=CAPABILITIES_URL,
+                status_code=503,
+                json={"error": {"message": "x"}},
             )
         with pytest.raises(FerroServerError):
-            _chat(client)
+            client.capabilities()
 
     def test_streaming_is_never_retried(self, client, httpx_mock: HTTPXMock):
         client.max_retries = 2
         httpx_mock.add_response(
-            method="POST", url=CHAT_URL, status_code=503, json={"error": {"message": "x"}}
+            method="POST", url=CHAT_URL, status_code=429, json={"error": {"message": "x"}}
         )
-        with pytest.raises(FerroServerError):
+        with pytest.raises(FerroRateLimitError):
             client.chat.completions.create(
                 model="gpt-4o", messages=[{"role": "user", "content": "Hi"}], stream=True
             )
@@ -358,12 +362,11 @@ class TestRetries:
 
         monkeypatch.setattr("ferrolabsai.client.asyncio.sleep", fake_sleep)
         async_client.max_retries = 1
-        httpx_mock.add_exception(httpx.ReadTimeout("slow"), method="POST", url=CHAT_URL)
-        httpx_mock.add_exception(httpx.ReadTimeout("slow"), method="POST", url=CHAT_URL)
+        httpx_mock.add_exception(httpx.ReadTimeout("slow"), method="GET", url=CAPABILITIES_URL)
+        httpx_mock.add_exception(httpx.ReadTimeout("slow"), method="GET", url=CAPABILITIES_URL)
         with pytest.raises(FerroConnectionError, match="timed out"):
-            await async_client.chat.completions.create(
-                model="gpt-4o", messages=[{"role": "user", "content": "Hi"}]
-            )
+            await async_client.capabilities()
+        assert len(httpx_mock.get_requests()) == 2
 
 
 class TestGatewayEndpoints:

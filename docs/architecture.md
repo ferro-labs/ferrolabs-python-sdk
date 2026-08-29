@@ -138,10 +138,14 @@ Shared by sync and async; streaming requests are never retried.
 
 | Trigger | Retried? |
 |---|---|
-| `httpx.ConnectError`, `httpx.TimeoutException` | yes |
-| HTTP `408`, `429`, `5xx` | yes |
+| HTTP `429` | yes, every method (the gateway did not process the request) |
+| `httpx.ConnectError`, `httpx.ConnectTimeout` | yes, every method (the request never left) |
+| HTTP `408`, `5xx` | idempotent methods only (`GET`, `HEAD`, `PUT`, `DELETE`, `OPTIONS`) |
+| other `httpx.TimeoutException` (read / write / pool) | idempotent methods only — a `POST` may already have been processed |
 | any other `4xx` | no — raised immediately |
 | streaming (`_open_stream`) | never |
+
+The decision lives in `_should_retry(method, status=…)` / `_should_retry(method, exc=…)`, shared by both loops.
 
 Delay before retry *n*: `Retry-After` seconds when present (capped at 30 s — the same cap the gateway applies to its own upstream retries), else `uniform(0, min(0.5 · 2^(n-1), 8))` (full jitter). `max_retries` defaults to 2 and is validated at construction.
 

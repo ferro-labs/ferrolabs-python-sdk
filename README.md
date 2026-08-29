@@ -324,7 +324,7 @@ client = FerroClient(
 )
 ```
 
-**Retries** cover connection errors, timeouts, and HTTP `408` / `429` / `5xx` — capped exponential backoff with full jitter (0.5 s base, 8 s cap), honouring `Retry-After` when the gateway sends one (capped at 30 s, the same cap the gateway applies upstream). Other `4xx` responses and **streaming requests are never retried**.
+**Retries** are idempotent-aware. HTTP `429` is retried for every method (the gateway did not process the request), as are connection errors and connect timeouts (the request never left). HTTP `408` / `5xx` and read / write / pool timeouts are retried **only for idempotent methods** (`GET`, `HEAD`, `PUT`, `DELETE`, `OPTIONS`) — a `POST` that timed out mid-flight may already have been processed, so it is raised as-is. Delays use capped exponential backoff with full jitter (0.5 s base, 8 s cap), honouring `Retry-After` when the gateway sends one (capped at 30 s, the same cap the gateway applies upstream). Other `4xx` responses and **streaming requests are never retried**.
 
 **Bring-your-own httpx client** lets you configure proxies, custom TLS, connection pool limits, or instrumentation middleware and reuse that across the SDK:
 
