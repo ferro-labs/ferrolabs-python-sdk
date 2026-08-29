@@ -28,6 +28,4 @@ def _not_implemented(name: str) -> None:
 def __getattr__(name: str) -> object:
     if name == "FerroLabsAI":
         _not_implemented(name)
-    raise AttributeError(
-        f"module 'llama_index.llms.ferrolabsai' has no attribute {name!r}"
-    )
+    raise AttributeError(f"module 'llama_index.llms.ferrolabsai' has no attribute {name!r}")
